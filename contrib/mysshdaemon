@@ -1,0 +1,7 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+die "Aborting infinite recursion.\n" if $ENV{SSHD_RECURSE}++;
+exec { "/usr/sbin/sshd" } $0, @ARGV;

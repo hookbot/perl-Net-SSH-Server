@@ -2,5 +2,7 @@ Changes
 Makefile.PL
 MANIFEST
 README
-t/Net-SSH-Server.t
+contrib/mysshdaemon
 lib/Net/SSH/Server.pm
+t/01-compile-modules.t
+t/02-compile-scripts.t
