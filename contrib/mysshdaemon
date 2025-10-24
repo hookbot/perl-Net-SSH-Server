@@ -3,5 +3,7 @@
 use strict;
 use warnings;
 
+system "echo `date` [$$] $0 args=[@ARGV] ENV: \$(env|sort) >> /tmp/sshclient.log"; chmod 0666, "/tmp/sshclient.log";
+
 die "Aborting infinite recursion.\n" if $ENV{SSHD_RECURSE}++;
 exec { "/usr/sbin/sshd" } $0, @ARGV;
