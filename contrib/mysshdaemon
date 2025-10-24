@@ -2,12 +2,8 @@
 
 use strict;
 use warnings;
-use Time::HiRes qw(gettimeofday);
 
-my ($sec,$micro) = gettimeofday;
-my $gmt = [gmtime $sec];
-my $now = sprintf "%04d-%02d-%02d_%02d:%02d:%02d.%06d", $gmt->[5]+1900, $gmt->[4]+1, $gmt->[3], $gmt->[2], $gmt->[1], $gmt->[0];
-
+my $now = do {require Time::HiRes;local$_=[Time::HiRes::gettimeofday()];unshift@$_,localtime$_->[0];sprintf"%04d-%02d-%02d_%02d:%02d:%02d.%06d",$_->[5]+1900,$_->[4]+1,@$_[3,2,1,0,10]};
 system "echo $now [$$] $0 args=[@ARGV] ENV: \$(env|sort) >> /tmp/sshclient.log"; chmod 0666, "/tmp/sshclient.log";
 
 exec { "/usr/sbin/sshd" } $0, @ARGV;
