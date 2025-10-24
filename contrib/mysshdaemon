@@ -2,8 +2,12 @@
 
 use strict;
 use warnings;
+use Time::HiRes qw(gettimeofday);
 
-system "echo `date` [$$] $0 args=[@ARGV] ENV: \$(env|sort) >> /tmp/sshclient.log"; chmod 0666, "/tmp/sshclient.log";
+my ($sec,$micro) = gettimeofday;
+my $gmt = [gmtime $sec];
+my $now = sprintf "%04d-%02d-%02d_%02d:%02d:%02d.%06d", $gmt->[5]+1900, $gmt->[4]+1, $gmt->[3], $gmt->[2], $gmt->[1], $gmt->[0];
 
-die "Aborting infinite recursion.\n" if $ENV{SSHD_RECURSE}++;
+system "echo $now [$$] $0 args=[@ARGV] ENV: \$(env|sort) >> /tmp/sshclient.log"; chmod 0666, "/tmp/sshclient.log";
+
 exec { "/usr/sbin/sshd" } $0, @ARGV;
