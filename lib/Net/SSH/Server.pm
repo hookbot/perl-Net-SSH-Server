@@ -47,16 +47,25 @@ sub pam_args {
     };
 }
 
+sub session_file {
+    my $self = shift;
+    return $ENV{SESSION_FILE} ||= do {
+        my $r = ['A'..'Z','a'..'z',0..9];
+        $r = join "", map { $r->[rand @$r] } 1..20;
+        "/var/run/sshd/$r.session";
+    };
+}
+
 sub run_pam_exec {
     my $self = shift;
     my $type = $ENV{PAM_TYPE} or die "pam_exec: type failure\n";
     my $step = $self->pam_args->{pam_exec_step} or die "pam_exec: step failure\n";
     $step =~ s/-/_/g;
     my $method = "$type\_$step";
-    if (my $code = $self->can($method)) {
-        exit $code->($self);
-    }
-    exit 0;
+    my $code = $self->can($method) or return 0;
+    #-f $self->session_file or eval { $self->stamp("create_session") };
+    $self->loadstash;
+    return [$code->($self), $self->savestash]->[0];
 }
 
 sub run_sshd {
@@ -115,7 +124,6 @@ sub auth_acquire_session_lock {
     my $self = shift;
     $self->stamp;
     my $auths = $self->stash->{pam_auth} ||= [];
-    $self->loadstash;
     my $pw = <STDIN>;
     defined $pw and chomp $pw;
     push @{ $self->stash->{pam_auth} }, {
@@ -124,12 +132,7 @@ sub auth_acquire_session_lock {
         user      => $ENV{PAM_USER},
         pw        => $pw,
     };
-    if (!$ENV{SESSION_FILE}) {
-        $ENV{SESSION_FILE} = do {
-            my $r = ['A'..'Z','a'..'z',0..9];
-            $r = join "", map { $r->[rand @$r] } 1..20;
-            "/var/run/sshd/$r.session";
-        };
+    if (!-f $ENV{SESSION_FILE}) {
         my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or exit 14; # PAM_SESSION_ERR
         my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or exit 14; # PAM_SESSION_ERR
         my $expire = 10 + time;
@@ -145,7 +148,7 @@ sub auth_acquire_session_lock {
             time > $expire and warn "$lock_file: FAILURE!\n" and exit 14; # PAM_SESSION_ERR
         }
     }
-    $self->loadstash;
+    return 0; # PAM_SUCCESS
 }
 
 sub auth_release_session_lock {
@@ -173,9 +176,8 @@ sub savestash {
 }
 
 sub loadstash {
-    $ENV{SESSION_FILE} or return;
     my $self = shift;
-    open my $fh, "<", $ENV{SESSION_FILE} or return;
+    open my $fh, "<", $self->session_file or return;
     my $json = join "", <$fh>;
     close $fh;
     $json = $self->json->decode($json);
