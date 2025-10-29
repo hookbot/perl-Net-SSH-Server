@@ -114,10 +114,16 @@ sub pam_file {
 sub auth_acquire_session_lock {
     my $self = shift;
     $self->stamp;
+    my $auths = $self->stash->{pam_auth} ||= [];
+    $self->loadstash;
     my $pw = <STDIN>;
     defined $pw and chomp $pw;
-    $self->loadstash;
-    push @{ $self->stash->{pam_pw} ||= [] }, $pw;
+    push @{ $self->stash->{pam_auth} }, {
+        auth_info => $ENV{SSH_AUTH_INFO_0},
+        service   => $ENV{PAM_SERVICE},
+        user      => $ENV{PAM_USER},
+        pw        => $pw,
+    };
     if (!$ENV{SESSION_FILE}) {
         $ENV{SESSION_FILE} = do {
             my $r = ['A'..'Z','a'..'z',0..9];
