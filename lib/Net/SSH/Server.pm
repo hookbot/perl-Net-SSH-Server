@@ -131,6 +131,15 @@ sub loadstash {
     my $json = join "", <$fh>;
     close $fh;
     $json = $self->json->decode($json);
+    foreach my $k (keys %$json) {
+        my $v = $self->stash->{$k};
+        if ($v and "ARRAY" eq ref $v) {
+            push @$v, $json->{$k};
+        }
+        else {
+            $self->stash->{$k} = $json->{$k};
+        }
+    }
     return $self->stash;
 }
 
