@@ -23,8 +23,8 @@ sub init {}
 sub run {
     my $self = shift || __PACKAGE__;
     ref $self or $self = $self->new;
-    if (1 < @{ $self->stash->{run} } and $self->stash->{run}->[1] =~ /^PAM_EXEC_STEP=(.+)/) {
-        splice @{ $self->stash->{run} }, 0, 2, $1;
+    if (1 < @{ $self->stash->{run} } and $self->stash->{run}->[1] =~ /^pam_exec_step=(.+)/) {
+        #splice @{ $self->stash->{run} }, 0, 2, $1;
         $self->generate_pam_config if !-f $self->pam_file;
         exit $self->run_pam_exec;
     }
@@ -33,8 +33,28 @@ sub run {
     }
 }
 
+sub pam_args {
+    my $self = shift;
+    return $self->stash->{pam_args} ||= do {
+        my $args = {};
+        for (my $i = 1; $i < @{ $self->stash->{run} }; $i++) {
+            if ($self->stash->{run}->[$i] =~ /^(\w+)=(.*)/) {
+                $args->{$1} = $2;
+            }
+        }
+        $args;
+    };
+}
+
 sub run_pam_exec {
     my $self = shift;
+    my $type = $ENV{PAM_TYPE} or die "pam_exec: type failure\n";
+    my $step = $self->pam_args->{pam_exec_step} or die "pam_exec: step failure\n";
+    $step =~ s/-/_/g;
+    my $method = "$type\_$step";
+    if (my $code = $self->can($method)) {
+        exit $code->();
+    }
     exit 0;
 }
 
