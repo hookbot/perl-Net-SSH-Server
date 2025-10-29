@@ -53,7 +53,7 @@ sub run_pam_exec {
     $step =~ s/-/_/g;
     my $method = "$type\_$step";
     if (my $code = $self->can($method)) {
-        exit $code->();
+        exit $code->($self);
     }
     exit 0;
 }
