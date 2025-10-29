@@ -5,6 +5,7 @@ use warnings;
 our $VERSION = '0.021';
 
 use FindBin qw($Script);
+use Fcntl qw(O_CREAT O_EXCL O_WRONLY);
 
 sub new {
     my $class = shift;
@@ -108,6 +109,44 @@ sub pam_service {
 
 sub pam_file {
     "/etc/pam.d/".pam_service();
+}
+
+sub auth_acquire_session_lock {
+    my $self = shift;
+    $self->stamp;
+    my $pw = <STDIN>;
+    defined $pw and chomp $pw;
+    if (!$ENV{SESSION_FILE}) {
+        $ENV{SESSION_FILE} = do {
+            my $r = ['A'..'Z','a'..'z',0..9];
+            $r = join "", map { $r->[rand @$r] } 1..20;
+            "/var/run/sshd/$r.session";
+        };
+        my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or exit 14; # PAM_SESSION_ERR
+        my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or exit 14; # PAM_SESSION_ERR
+        my $expire = 10 + time;
+        while (1) {
+            if (sysopen my $fh, $lock_file, O_WRONLY | O_CREAT | O_EXCL, 0600) {
+                print $fh "$$\n";
+                close $fh;
+                open $fh, ">", $env_file and print $fh "SESSION_FILE=$ENV{SESSION_FILE}\n" and close $fh;
+                $self->savestash;
+                return 0; # PAM_SUCCESS
+            }
+            select undef,undef,undef, 0.1;
+            time > $expire and warn "$lock_file: FAILURE!\n" and exit 14; # PAM_SESSION_ERR
+        }
+    }
+}
+
+sub auth_release_session_lock {
+    my $self = shift;
+    $self->stamp;
+    my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or exit 14; # PAM_SESSION_ERR
+    my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or exit 14; # PAM_SESSION_ERR
+    unlink $env_file;
+    unlink $lock_file;
+    return 0; # PAM_SUCCESS
 }
 
 sub json {
