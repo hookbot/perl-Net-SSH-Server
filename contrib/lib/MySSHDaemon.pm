@@ -12,9 +12,7 @@ sub stamp {
 
 sub run_sshd {
     my $self = shift;
-    #splice @{ $self->stash->{run} }, 1, 0, (-o => "Include /etc/ssh/sshd-bastion_config.d/*.conf"); # Whoops! "-o Include" doesn't work for some reason.
-    #splice @{ $self->stash->{run} }, 1, 0, (-f => "/etc/ssh/sshdproxy_config");
-    push @{ $self->stash->{run} }, (-f => "/etc/ssh/sshdproxy_config");
+    $self->stash->{override_config_file} = "/etc/ssh/sshdproxy_config";
     $self->stamp;
     $self->SUPER::run_sshd();
 }
