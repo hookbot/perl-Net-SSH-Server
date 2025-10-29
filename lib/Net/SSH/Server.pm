@@ -10,7 +10,7 @@ sub new {
     my $class = shift;
     my $self = shift || {};
     bless $self, $class;
-    $self->stash->{run} = [ $0, @ARGV ];
+    $self->{run} = [ $0, @ARGV ];
     $self->init;
     return bless $self, $class;
 }
@@ -23,8 +23,8 @@ sub init {}
 sub run {
     my $self = shift || __PACKAGE__;
     ref $self or $self = $self->new;
-    if (1 < @{ $self->stash->{run} } and $self->stash->{run}->[1] =~ /^pam_exec_step=(.+)/) {
-        #splice @{ $self->stash->{run} }, 0, 2, $1;
+    if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
+        #splice @{ $self->{run} }, 0, 2, $1;
         $self->generate_pam_config if !-f $self->pam_file;
         exit $self->run_pam_exec;
     }
@@ -35,10 +35,10 @@ sub run {
 
 sub pam_args {
     my $self = shift;
-    return $self->stash->{pam_args} ||= do {
+    return $self->{pam_args} ||= do {
         my $args = {};
-        for (my $i = 1; $i < @{ $self->stash->{run} }; $i++) {
-            if ($self->stash->{run}->[$i] =~ /^(\w+)=(.*)/) {
+        for (my $i = 1; $i < @{ $self->{run} }; $i++) {
+            if ($self->{run}->[$i] =~ /^(\w+)=(.*)/) {
                 $args->{$1} = $2;
             }
         }
@@ -85,12 +85,12 @@ sub run_sshd {
         else {
             $ENV{NET_SSH_OVERRIDE} = "/dev/null";
         }
-        push @{ $self->stash->{run} }, (-f => $ENV{NET_SSH_OVERRIDE}) if $dir || $file;
+        push @{ $self->{run} }, (-f => $ENV{NET_SSH_OVERRIDE}) if $dir || $file;
     }
     my $target = $self->target;
     die "$target: Not executable\n" if !-x $target;
-    die "$0: Invalid invocation\n" if $target eq $self->stash->{run}->[0];
-    exec { $target } @{ $self->stash->{run} } or die "$0: spawn failure: $!\n";
+    die "$0: Invalid invocation\n" if $target eq $self->{run}->[0];
+    exec { $target } @{ $self->{run} } or die "$0: spawn failure: $!\n";
 }
 
 sub target {
