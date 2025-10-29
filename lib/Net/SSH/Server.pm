@@ -6,14 +6,11 @@ our $VERSION = '0.021';
 
 use FindBin qw($Script);
 
-use Data::Dumper;
-open my $fh, ">>", "/tmp/sshd-server.log"; chmod 0666, "/tmp/sshd-server.log";
-#open $fh, ">", "/dev/null";
-
 sub new {
     my $class = shift;
     my $self = shift || {};
     bless $self, $class;
+    $self->stash->{run} = [ $0, @ARGV ];
     $self->init;
     return bless $self, $class;
 }
@@ -26,32 +23,26 @@ sub init {}
 sub run {
     my $self = shift || __PACKAGE__;
     ref $self or $self = $self->new;
-    $self->stash->{run} = [ $0, @ARGV ];
-print $fh localtime().": DEBUG: run 0: ".Dumper { self => $self, pkg => __PACKAGE__ };
     if (1 < @{ $self->stash->{run} } and $self->stash->{run}->[1] =~ /^PAM_EXEC_STEP=(.+)/) {
         splice @{ $self->stash->{run} }, 0, 2, $1;
         $self->generate_pam_config if !-f $self->pam_file;
-print $fh localtime().": DEBUG: run A: ".Dumper { self => $self, pkg => __PACKAGE__ };
         exit $self->run_pam_exec;
     }
     else {
-print $fh localtime().": DEBUG: run B: ".Dumper { self => $self, pkg => __PACKAGE__ };
         exit $self->run_sshd;
     }
 }
 
 sub run_pam_exec {
     my $self = shift;
-print $fh localtime().": DEBUG: run_pam_exec: ".Dumper { self => $self, pkg => __PACKAGE__ };
     exit 0;
 }
 
 sub run_sshd {
     my $self = shift;
-print $fh localtime().": DEBUG: run_sshd: ".Dumper { self => $self, pkg => __PACKAGE__ };
     my $target = $self->target;
     die "$target: Not executable\n" if !-x $target;
-    #die "$0: Invalid invocation\n" if $target eq $self->stash->{run}->[0];
+    die "$0: Invalid invocation\n" if $target eq $self->stash->{run}->[0];
     exec { $target } @{ $self->stash->{run} } or die "$0: spawn failure: $!\n";
 }
 
