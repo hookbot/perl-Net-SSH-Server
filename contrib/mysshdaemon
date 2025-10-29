@@ -6,6 +6,4 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MySSHDaemon;
 
-my $sshd = MySSHDaemon->new;
-$sshd->stamp;
-$sshd->run;
+MySSHDaemon->run;
