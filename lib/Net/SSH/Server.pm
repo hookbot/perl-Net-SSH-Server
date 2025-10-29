@@ -110,6 +110,30 @@ sub pam_file {
     "/etc/pam.d/".pam_service();
 }
 
+sub json {
+    my $self = shift;
+    return $self->{json} ||= eval { require JSON; JSON->new->utf8->allow_unknown->allow_nonref->convert_blessed->canonical } || die "Could not load JSON: $@";
+}
+
+sub savestash {
+    $ENV{SESSION_FILE} or return;
+    my $self = shift;
+    open my $fh, ">", $ENV{SESSION_FILE} or return;
+    print $fh $self->json->encode($self->stash)."\n";
+    close $fh;
+    return $self->stash;
+}
+
+sub loadstash {
+    $ENV{SESSION_FILE} or return;
+    my $self = shift;
+    open my $fh, "<", $ENV{SESSION_FILE} or return;
+    my $json = join "", <$fh>;
+    close $fh;
+    $json = $self->json->decode($json);
+    return $self->stash;
+}
+
 1;
 __END__
 # Below is stub documentation for your module. You'd better edit it!
