@@ -30,13 +30,11 @@ sub run {
 print $fh localtime().": DEBUG: run 0: ".Dumper { self => $self, pkg => __PACKAGE__ };
     if (1 < @{ $self->stash->{run} } and $self->stash->{run}->[1] =~ /^PAM_EXEC_STEP=(.+)/) {
         splice @{ $self->stash->{run} }, 0, 2, $1;
-        $self->get_module;
         $self->generate_pam_config if !-f $self->pam_file;
 print $fh localtime().": DEBUG: run A: ".Dumper { self => $self, pkg => __PACKAGE__ };
         exit $self->run_pam_exec;
     }
     else {
-        $self->set_module;
 print $fh localtime().": DEBUG: run B: ".Dumper { self => $self, pkg => __PACKAGE__ };
         exit $self->run_sshd;
     }
@@ -50,31 +48,10 @@ print $fh localtime().": DEBUG: run_pam_exec: ".Dumper { self => $self, pkg => _
 
 sub run_sshd {
     my $self = shift;
-    my $class = ref $self;
-    #$self->envtostash;
-print $fh localtime().": DEBUG: 1 self: ".Dumper { self => $self };
-    if ($class eq __PACKAGE__) {
-        $self->get_module;
-print $fh localtime().": DEBUG: 2 self: ".Dumper { self => $self };
-    }
-    $self->stash->{run} = [ $0, @ARGV ];
-print $fh localtime().": DEBUG: 3 self: ".Dumper { self => $self };
-    (my $file = $class) =~ s/::/\//g;
-    $file .= ".pm";
-    if (!$self->stash->{mod} and my $path = $INC{$file}) {
-        $self->stash->{mod}  = $class;
-        $self->stash->{file} = $path;
-    }
-print $fh localtime().": DEBUG: 4 self: ".Dumper { self => $self };
-close $fh;
-
+print $fh localtime().": DEBUG: run_sshd: ".Dumper { self => $self, pkg => __PACKAGE__ };
     my $target = $self->target;
     die "$target: Not executable\n" if !-x $target;
-    die "$0: Invalid invocation\n" if $target eq $self->stash->{run}->[0];
-    $self->generate_pam_config if !-f $self->pam_file;
-    #$self->stashtoenv;
-    $self->set_module;
-    #$self->pre_spawn;
+    #die "$0: Invalid invocation\n" if $target eq $self->stash->{run}->[0];
     exec { $target } @{ $self->stash->{run} } or die "$0: spawn failure: $!\n";
 }
 
@@ -91,90 +68,9 @@ sub pam_service {
     return $ENV{PAM_SERVICE} ||= $Script;
 }
 
-sub module_file {
-    return "/var/run/sshd/".pam_service().".mod";
-}
-
-sub get_module {
-    my $self = shift;
-    open my $fh, "<", module_file() or return (ref($self) ? ref($self) : ($self || __PACKAGE__));
-    chomp(my $class = <$fh> || __PACKAGE__);
-    return $class if $class eq ref $self;
-    if (!UNIVERAL::can($class, "new")) {
-        chomp (my $inc = <$fh>);
-        #chomp (my $path = <$fh> || __FILE__);
-        #require $path;
-        (my $file = $class) =~ s/::/\//g;
-        $file .= ".pm";
-        #$INC{$file} = $path;
-        eval { require $file };
-    }
-    if (UNIVERAL::can($class, "new")) {
-        bless $self, $class;
-    }
-    return $class;
-}
-
-sub set_module {
-    my $self = shift;
-    my $class = shift || ref($self) || $self || __PACKAGE__;
-    if ($class ne $self->get_module()) {
-        (my $file = $class) =~ s/::/\//g;
-        $file .= ".pm";
-        if (my $path = $INC{$file} ||
-            eval { require $file; $INC{$file} }) {
-            if ($path =~ m{^(/.+)/\Q$file\E$}) {
-                my $inc = $1;
-                open my $fh, ">", module_file();
-                print $fh "$class\n";
-                print $fh "$inc\n";
-                close $fh;
-            }
-        }
-    }
-    return $class;
-}
-
-sub stashtoenv {
-    my $self = shift;
-    eval {
-        require JSON;
-        $ENV{SSHD_TRANSPORT} = JSON->new->canonical->encode($self->stash);
-    } or eval {
-        require Data::Dumper;
-        $ENV{SSHD_TRANSPORT} = Data::Dumper::Dumper($self->stash);
-    };
-    return $self->stash;
-}
-
-sub envtostash {
-    my $self = shift;
-print $fh localtime().": DEBUG: 0-A-envtostash self: ".Dumper { self => $self };
-    if (my $t = $ENV{SSHD_TRANSPORT}) {
-print $fh localtime().": DEBUG: 0-B-envtostash env: ".Dumper { st => $t };
-        if (my $new_stash = $t && $t =~ /^\{/
-            ? eval { require JSON; JSON->new->decode($t); }
-            : eval $t) {
-print $fh localtime().": DEBUG: 0-C-envtostash new_stash: ".Dumper $new_stash;
-            foreach my $k (keys %$new_stash) {
-                $self->stash->{$k} //= $new_stash->{$k};
-            }
-        }
-    }
-print $fh localtime().": DEBUG: 0-D-envtostash self: ".Dumper { self => $self };
-    return $self->stash;
-}
-
 sub pam_file {
-    my $self = shift;
-    my $prog = ($self->stash->{run} && $self->stash->{run}->[0]) || $0;
-    my $script = $prog =~ m{([\w\-]+)$} ? $1 : "sshd";
-    return "/etc/pam.d/$script";
+    "/etc/pam.d/".pam_service();
 }
-
-# Hook: pre_spawn
-# Run before spawning the sshd binary
-sub pre_spawn {}
 
 1;
 __END__
