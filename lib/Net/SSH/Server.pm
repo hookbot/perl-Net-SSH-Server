@@ -116,6 +116,8 @@ sub auth_acquire_session_lock {
     $self->stamp;
     my $pw = <STDIN>;
     defined $pw and chomp $pw;
+    $self->loadstash;
+    push @{ $self->stash->{pam_pw} ||= [] }, $pw;
     if (!$ENV{SESSION_FILE}) {
         $ENV{SESSION_FILE} = do {
             my $r = ['A'..'Z','a'..'z',0..9];
@@ -137,6 +139,7 @@ sub auth_acquire_session_lock {
             time > $expire and warn "$lock_file: FAILURE!\n" and exit 14; # PAM_SESSION_ERR
         }
     }
+    $self->loadstash;
 }
 
 sub auth_release_session_lock {
