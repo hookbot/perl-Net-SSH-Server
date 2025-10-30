@@ -5,7 +5,7 @@ use warnings;
 our $VERSION = '0.021';
 
 use FindBin qw($Script);
-use Fcntl qw(O_CREAT O_EXCL O_WRONLY);
+use Fcntl qw(O_CREAT O_EXCL O_RDWR O_WRONLY);
 
 sub new {
     my $class = shift;
@@ -25,8 +25,7 @@ sub run {
     my $self = shift || __PACKAGE__;
     ref $self or $self = $self->new;
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
-        #splice @{ $self->{run} }, 0, 2, $1;
-        $self->generate_pam_config if !-f $self->pam_file;
+        eval { $self->generate_pam_config } if !-f $self->pam_file;
         exit $self->run_pam_exec;
     }
     else {
@@ -49,10 +48,28 @@ sub pam_args {
 
 sub session_file {
     my $self = shift;
-    return $ENV{SESSION_FILE} ||= do {
-        my $r = ['A'..'Z','a'..'z',0..9];
-        $r = join "", map { $r->[rand @$r] } 1..20;
-        "/var/run/sshd/$r.session";
+    return $self->{session_file} if $self->{session_file};
+    my $ppid_file = "/var/run/sshd/".getppid().".id";
+    if ($self->{session_file} = $ENV{SESSION_FILE}) {
+        $self->trace("session_file:[wiped_parent=$ppid_file]");
+        unlink $ppid_file;
+        return $self->{session_file};
+    }
+    return $self->{session_file} = $ENV{SESSION_FILE} = do {
+        my $id;
+        sysopen my $fh, $ppid_file, O_CREAT | O_RDWR, 0600 or die "$ppid_file: open failure! $!\n";
+        if ($id = <$fh>) {
+            chomp $id;
+        }
+        else {
+            my $r = ['A'..'Z','a'..'z',0..9];
+            $id = join "", map { $r->[rand @$r] } 1..20;
+            seek $fh, 0, 0;
+            print $fh "$id\n";
+            $self->trace("session_file:[create_parent=$ppid_file]");
+        }
+        close $fh;
+        "/var/run/sshd/$id.session";
     };
 }
 
@@ -62,10 +79,15 @@ sub run_pam_exec {
     my $step = $self->pam_args->{pam_exec_step} or die "pam_exec: step failure\n";
     $step =~ s/-/_/g;
     my $method = "$type\_$step";
-    my $code = $self->can($method) or return 0;
-    #-f $self->session_file or eval { $self->stamp("create_session") };
-    $self->loadstash;
-    return [$code->($self), $self->savestash]->[0];
+    -f $self->session_file;
+    my $code = $self->can($method);
+    $self->trace("run_pam_exec:[method=$method][".($code ? "Exists" : "NoMethod")."]");
+    $code or return 0; # PAM_SUCCESS
+    if (-f $self->session_file) {
+        $self->loadstash;
+    }
+    $self->trace("run_pam_exec:[loadstash=".($self->session_file)."]");
+    return [$code->($self), $self->trace("run_pam_exec:savestash"), $self->savestash]->[0];
 }
 
 sub run_sshd {
@@ -122,7 +144,7 @@ sub pam_file {
 
 sub auth_acquire_session_lock {
     my $self = shift;
-    $self->stamp;
+    $self->trace("auth_acquire_session_lock");
     my $auths = $self->stash->{pam_auth} ||= [];
     my $pw = <STDIN>;
     defined $pw and chomp $pw;
@@ -132,33 +154,40 @@ sub auth_acquire_session_lock {
         user      => $ENV{PAM_USER},
         pw        => $pw,
     };
-    if (!-f $ENV{SESSION_FILE}) {
-        my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or exit 14; # PAM_SESSION_ERR
-        my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or exit 14; # PAM_SESSION_ERR
-        my $expire = 10 + time;
-        while (1) {
-            if (sysopen my $fh, $lock_file, O_WRONLY | O_CREAT | O_EXCL, 0600) {
-                print $fh "$$\n";
+    my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
+    my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
+    my $expire = 10 + time;
+    while (1) {
+        if (sysopen my $fh, $lock_file, O_WRONLY | O_CREAT | O_EXCL, 0600) {
+            print $fh "$$\n";
+            close $fh;
+            if (open $fh, ">", $env_file) {
+                print $fh "SESSION_FILE=$ENV{SESSION_FILE}\n" if !-f $ENV{SESSION_FILE};
                 close $fh;
-                open $fh, ">", $env_file and print $fh "SESSION_FILE=$ENV{SESSION_FILE}\n" and close $fh;
-                $self->savestash;
-                return 0; # PAM_SUCCESS
             }
-            select undef,undef,undef, 0.1;
-            time > $expire and warn "$lock_file: FAILURE!\n" and exit 14; # PAM_SESSION_ERR
+            $self->savestash;
+            last; # return 0; # PAM_SUCCESS
         }
+        select undef,undef,undef, 0.1;
+        time > $expire and warn "$lock_file: FAILURE!\n" and return 22; # PAM_AUTHTOK_LOCK_BUSY
     }
     return 0; # PAM_SUCCESS
 }
 
 sub auth_release_session_lock {
     my $self = shift;
-    $self->stamp;
-    my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or exit 14; # PAM_SESSION_ERR
-    my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or exit 14; # PAM_SESSION_ERR
+    $self->trace("auth_release_session_lock");
+    my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
+    my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
     unlink $env_file;
     unlink $lock_file;
     return 0; # PAM_SUCCESS
+}
+
+sub auth_check {
+    my $self = shift;
+    $self->trace("auth_check");
+    return 7; # PAM_AUTH_ERR /* Authentication failure */
 }
 
 sub json {
@@ -191,6 +220,12 @@ sub loadstash {
         }
     }
     return $self->stash;
+}
+
+sub trace {
+    my $self = shift;
+    my $tag = shift || "unknown_trace";
+    # Nothing to do
 }
 
 1;
