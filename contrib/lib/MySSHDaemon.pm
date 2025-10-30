@@ -36,7 +36,6 @@ sub run_sshd {
 sub run_pam_exec {
     my $self = shift;
     $self->stamp("run_pam_exec");
-#system "(echo DEBUG: `date` PEEK FDS run_pam_exec: ; ls -al /proc/$$/fd) >> /tmp/sshclient.log";
     $self->SUPER::run_pam_exec();
 }
 

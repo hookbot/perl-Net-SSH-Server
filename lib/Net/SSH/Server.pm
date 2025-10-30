@@ -6,7 +6,6 @@ our $VERSION = '0.021';
 
 use FindBin qw($Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDWR O_WRONLY);
-use IO::Handle;
 
 sub new {
     my $class = shift;
@@ -149,10 +148,6 @@ sub auth_acquire_session_lock {
     my $auths = $self->stash->{pam_auth} ||= [];
     my $pw = <STDIN>;
     defined $pw and chomp $pw;
-    my $jam3 = IO::Handle->new_from_fd(3, ">");
-    print $jam3 "\x00HACKJAM=$$\x00";
-    close $jam3;
-#$self->json->encode(
 
     push @{ $self->stash->{pam_auth} }, {
         auth_info => $ENV{SSH_AUTH_INFO_0},
