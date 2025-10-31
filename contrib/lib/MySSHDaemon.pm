@@ -11,7 +11,10 @@ sub stamp {
     my @run = @{ $self->{run} };
     my $stash = $self->json->encode($self->stash);
     $stash =~ s/\'/'"\'"'/g;
-    system "echo $now [$$] [$ppid] [$tag] [@run] 'STASH[$stash]' ENV: \$(env|sort) >> /tmp/sshclient.log"; chmod 0666, "/tmp/sshclient.log";
+    open my $fh, ">>", "/tmp/sshclient.log";
+    chmod 0666, "/tmp/sshclient.log";
+    print $fh "$now [$$] [$ppid] [$tag] [@run] STASH[$stash] ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
+    close $fh;
 }
 
 sub trace {
