@@ -180,6 +180,10 @@ sub auth_acquire_session_lock {
             $lock_goal = "";
         }
         close $fh;
+        if ($lock_goal and time() - [stat $lock_file]->[9] > 11) {
+            # Get rid of crusty stale mismatched lock file
+            unlink $lock_file;
+        }
     }
     while ($lock_goal) {
         if (sysopen my $fh, $lock_file, O_WRONLY | O_CREAT | O_EXCL, 0600) {
