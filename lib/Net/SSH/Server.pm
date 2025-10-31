@@ -32,6 +32,13 @@ sub run {
         exit $self->run_pam_exec;
     }
     else {
+        if (!grep { $_ eq "-D" } @{ $self->{run} }) {
+            # Without -D, then Detach and launch WITH -D
+            splice @{ $self->{run} }, 1, 0, "-D";
+            exit if fork;
+        }
+        # Now it's the perfect non-detach mode to allow easy monitoring
+        $ENV{NET_SSH_EXEC_PID} = $$;
         $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $$ : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
         exit $self->run_sshd;
     }
