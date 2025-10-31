@@ -174,20 +174,27 @@ sub auth_acquire_session_lock {
         $save_env = join "", <$fh>;
         close $fh;
     }
-    while (1) {
+    my $lock_goal = "$self->{pam_id}\n";
+    if (open my $fh, "<", $lock_file) {
+        if ((<$fh> || "") eq $lock_goal) {
+            $lock_goal = "";
+        }
+        close $fh;
+    }
+    while ($lock_goal) {
         if (sysopen my $fh, $lock_file, O_WRONLY | O_CREAT | O_EXCL, 0600) {
-            print $fh "$$\n";
+            print $fh $lock_goal;
             close $fh;
-            if (open $fh, ">", $env_file) {
-                print $fh $save_env;
-                close $fh;
-            }
-            $self->savestash;
-            last; # return 0; # PAM_SUCCESS
+            last;
         }
         select undef,undef,undef, 0.1;
         time > $expire and warn "$lock_file: FAILURE!\n" and return 22; # PAM_AUTHTOK_LOCK_BUSY
     }
+    if (open my $fh, ">", $env_file) {
+        print $fh $save_env;
+        close $fh;
+    }
+    $self->savestash;
     return 0; # PAM_SUCCESS
 }
 
