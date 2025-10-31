@@ -7,6 +7,8 @@ our $VERSION = '0.021';
 use FindBin qw($Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDWR O_WRONLY);
 
+# Method: new
+# Purpose: Initializer
 sub new {
     my $class = shift;
     my $self = shift || {};
@@ -26,9 +28,11 @@ sub run {
     ref $self or $self = $self->new;
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
         eval { $self->generate_pam_config } if !-f $self->pam_file;
+        $self->{pam_id} = getppid();
         exit $self->run_pam_exec;
     }
     else {
+        $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $$ : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
         exit $self->run_sshd;
     }
 }
@@ -48,29 +52,32 @@ sub pam_args {
 
 sub session_file {
     my $self = shift;
-    return $self->{session_file} if $self->{session_file};
-    my $ppid_file = "/var/run/sshd/".getppid().".id";
-    if ($self->{session_file} = $ENV{SESSION_FILE}) {
-        $self->trace("session_file:[wiped_parent=$ppid_file]");
-        unlink $ppid_file;
-        return $self->{session_file};
+    return $ENV{SESSION_FILE} ||= "/var/run/sshd/session-$self->{pam_id}.env";
+}
+
+sub pam_getenv {
+    my $self = shift;
+    my $name = shift;
+    $self->pam_putenv();
+    return $ENV{$name};
+}
+
+sub pam_putenv {
+    my $self = shift;
+    my $name = shift;
+    my $value = shift // "";
+    $value =~ s/\n/\\n/g;
+    my $file = $self->session_file;
+    sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
+    my $contents = join "", <$fh>;
+    $contents .= "$name=$value\n" if $name;
+    seek $fh, 0, 0; # SEEK_SET
+    print $fh $contents;
+    close $fh;
+    while ($contents =~ s/^(\w+)=(.*)\n//) {
+        length($2) ? ($ENV{$1} = $2) : delete $ENV{$1};
     }
-    return $self->{session_file} = $ENV{SESSION_FILE} = do {
-        my $id;
-        sysopen my $fh, $ppid_file, O_CREAT | O_RDWR, 0600 or die "$ppid_file: open failure! $!\n";
-        if ($id = <$fh>) {
-            chomp $id;
-        }
-        else {
-            my $r = ['A'..'Z','a'..'z',0..9];
-            $id = join "", map { $r->[rand @$r] } 1..20;
-            seek $fh, 0, 0;
-            print $fh "$id\n";
-            $self->trace("session_file:[create_parent=$ppid_file]");
-        }
-        close $fh;
-        "/var/run/sshd/$id.session";
-    };
+    return $self;
 }
 
 sub run_pam_exec {
@@ -79,9 +86,8 @@ sub run_pam_exec {
     my $step = $self->pam_args->{pam_exec_step} or die "pam_exec: step failure\n";
     $step =~ s/-/_/g;
     my $method = "$type\_$step";
-    -f $self->session_file;
     my $code = $self->can($method);
-    $self->trace("run_pam_exec:[method=$method][".($code ? "Exists" : "NoMethod")."]");
+    $self->trace("run_pam_exec:[method=$method][code=$code]");
     $code or return 0; # PAM_SUCCESS
     if (-f $self->session_file) {
         $self->loadstash;
@@ -148,7 +154,6 @@ sub auth_acquire_session_lock {
     my $auths = $self->stash->{pam_auth} ||= [];
     my $pw = <STDIN>;
     defined $pw and chomp $pw;
-
     push @{ $self->stash->{pam_auth} }, {
         auth_info => $ENV{SSH_AUTH_INFO_0},
         service   => $ENV{PAM_SERVICE},
