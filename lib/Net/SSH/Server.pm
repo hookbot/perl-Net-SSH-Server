@@ -155,18 +155,20 @@ sub pam_file {
     "/etc/pam.d/".pam_service();
 }
 
+sub auth_sniff {
+    my $self = shift;
+    $self->trace("auth_sniff");
+    return 0; # PAM_SUCCESS
+}
+
 sub auth_check {
     my $self = shift;
     $self->trace("auth_check:top");
-    chomp (my $pw = <STDIN> // "");
+    my $pw = <STDIN>;
     $self->pam_putenv( PAM_PW => ($pw // "") );
-    push @{ $self->stash->{pam_auth} ||= [] }, {
-        service   => $ENV{PAM_SERVICE},
-        user      => $ENV{PAM_USER},
-        pw        => $pw,
-    };
+    push @{ $self->stash->{auth_pw} ||= [] }, $pw;
     $self->trace("auth_check:end");
-    # Default pass if any non-empty password is provided
+    # Default to SUCCESS if any random non-empty pasword is provided
     return length $pw ?
         0 : # PAM_SUCCESS   /* Successful function return */
         7 ; # PAM_AUTH_ERR  /* Authentication failure */
@@ -175,15 +177,6 @@ sub auth_check {
 sub auth_acquire_session_lock {
     my $self = shift;
     $self->trace("auth_acquire_session_lock");
-    my $auths = $self->stash->{pam_auth} ||= [];
-    my $pw = <STDIN>;
-    defined $pw and chomp $pw;
-    $self->pam_putenv( PAM_PW => ($pw // "") );
-    push @{ $self->stash->{pam_auth} }, {
-        service   => $ENV{PAM_SERVICE},
-        user      => $ENV{PAM_USER},
-        pw        => $pw,
-    };
     my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
     my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
     my $expire = 10 + time;
@@ -220,6 +213,12 @@ sub auth_acquire_session_lock {
     return 0; # PAM_SUCCESS
 }
 
+sub account_sniff {
+    my $self = shift;
+    $self->trace("auth_sniff");
+    return 0; # PAM_SUCCESS
+}
+
 sub account_release_session_lock {
     my $self = shift;
     $self->trace("account_release_session_lock");
@@ -227,6 +226,12 @@ sub account_release_session_lock {
     my $env_file  = $self->pam_args->{envfile}  or !warn "account_release_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
     unlink $env_file;
     unlink $lock_file;
+    return 0; # PAM_SUCCESS
+}
+
+sub session_sniff {
+    my $self = shift;
+    $self->trace("session_sniff");
     return 0; # PAM_SUCCESS
 }
 
