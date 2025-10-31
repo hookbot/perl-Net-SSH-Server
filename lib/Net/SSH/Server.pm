@@ -57,7 +57,7 @@ sub session_file {
 
 sub pam_getenv {
     my $self = shift;
-    my $name = shift;
+    my $name = shift // "";
     $self->pam_putenv();
     return $ENV{$name};
 }
@@ -89,9 +89,7 @@ sub run_pam_exec {
     my $code = $self->can($method) || "";
     $self->trace("run_pam_exec:[method=$method][code=$code]");
     $code or return 0; # PAM_SUCCESS
-    if (-f $self->session_file) {
-        $self->loadstash;
-    }
+    $self->loadstash;
     $self->trace("run_pam_exec:[loadstash=".($self->session_file)."]");
     return [$code->($self), $self->trace("run_pam_exec:savestash"), $self->savestash]->[0];
 }
@@ -150,14 +148,20 @@ sub pam_file {
     "/etc/pam.d/".pam_service();
 }
 
+sub auth_check {
+    my $self = shift;
+    $self->trace("auth_check");
+    return 7; # PAM_AUTH_ERR /* Authentication failure */
+}
+
 sub auth_acquire_session_lock {
     my $self = shift;
     $self->trace("auth_acquire_session_lock");
     my $auths = $self->stash->{pam_auth} ||= [];
     my $pw = <STDIN>;
     defined $pw and chomp $pw;
+    $self->pam_putenv( PAM_PW => ($pw // "") );
     push @{ $self->stash->{pam_auth} }, {
-        auth_info => $ENV{SSH_AUTH_INFO_0},
         service   => $ENV{PAM_SERVICE},
         user      => $ENV{PAM_USER},
         pw        => $pw,
@@ -165,12 +169,17 @@ sub auth_acquire_session_lock {
     my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
     my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
     my $expire = 10 + time;
+    my $save_env = "";
+    if (open my $fh, "<", $self->session_file) {
+        $save_env = join "", <$fh>;
+        close $fh;
+    }
     while (1) {
         if (sysopen my $fh, $lock_file, O_WRONLY | O_CREAT | O_EXCL, 0600) {
             print $fh "$$\n";
             close $fh;
             if (open $fh, ">", $env_file) {
-                print $fh "SESSION_FILE=$ENV{SESSION_FILE}\n" if !-f $ENV{SESSION_FILE};
+                print $fh $save_env;
                 close $fh;
             }
             $self->savestash;
@@ -182,20 +191,14 @@ sub auth_acquire_session_lock {
     return 0; # PAM_SUCCESS
 }
 
-sub auth_release_session_lock {
+sub account_release_session_lock {
     my $self = shift;
-    $self->trace("auth_release_session_lock");
-    my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
-    my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
+    $self->trace("account_release_session_lock");
+    my $lock_file = $self->pam_args->{lockfile} or !warn "account_release_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
+    my $env_file  = $self->pam_args->{envfile}  or !warn "account_release_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
     unlink $env_file;
     unlink $lock_file;
     return 0; # PAM_SUCCESS
-}
-
-sub auth_check {
-    my $self = shift;
-    $self->trace("auth_check");
-    return 7; # PAM_AUTH_ERR /* Authentication failure */
 }
 
 sub json {
@@ -204,29 +207,28 @@ sub json {
 }
 
 sub savestash {
-    $ENV{SESSION_FILE} or return;
     my $self = shift;
-    open my $fh, ">", $ENV{SESSION_FILE} or return;
-    print $fh $self->json->encode($self->stash)."\n";
-    close $fh;
+    $self->pam_putenv( SESSION_FILE => $self->session_file );
+    $self->pam_putenv( STASH_JSON => $self->json->encode($self->stash) );
     return $self->stash;
 }
 
 sub loadstash {
     my $self = shift;
-    open my $fh, "<", $self->session_file or return;
-    my $json = join "", <$fh>;
-    close $fh;
+    my $json = $self->pam_getenv( "STASH_JSON" ) or return;
     $json = $self->json->decode($json);
+    my $monkey_stash = 0;
     foreach my $k (keys %$json) {
         my $v = $self->stash->{$k};
         if ($v and "ARRAY" eq ref $v) {
             push @$v, $json->{$k};
+            $monkey_stash++;
         }
         else {
             $self->stash->{$k} = $json->{$k};
         }
     }
+    $self->savestash if $monkey_stash;
     return $self->stash;
 }
 
