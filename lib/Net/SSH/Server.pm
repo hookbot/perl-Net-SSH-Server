@@ -86,7 +86,7 @@ sub run_pam_exec {
     my $step = $self->pam_args->{pam_exec_step} or die "pam_exec: step failure\n";
     $step =~ s/-/_/g;
     my $method = "$type\_$step";
-    my $code = $self->can($method);
+    my $code = $self->can($method) || "";
     $self->trace("run_pam_exec:[method=$method][code=$code]");
     $code or return 0; # PAM_SUCCESS
     if (-f $self->session_file) {
@@ -98,6 +98,7 @@ sub run_pam_exec {
 
 sub run_sshd {
     my $self = shift;
+    $self->trace("run_sshd:TopOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
     if ($ENV{NET_SSH_OVERRIDE}) {
         # Already munged
     }
@@ -128,6 +129,7 @@ sub run_sshd {
     my $target = $self->target;
     die "$target: Not executable\n" if !-x $target;
     die "$0: Invalid invocation\n" if $target eq $self->{run}->[0];
+    $self->trace("run_sshd:EndOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
     exec { $target } @{ $self->{run} } or die "$0: spawn failure: $!\n";
 }
 
