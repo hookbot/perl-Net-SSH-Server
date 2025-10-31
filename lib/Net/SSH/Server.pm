@@ -82,7 +82,10 @@ sub pam_putenv {
     print $fh $contents;
     close $fh;
     while ($contents =~ s/^(\w+)=(.*)\n//) {
-        length($2) ? ($ENV{$1} = $2) : delete $ENV{$1};
+        my $n = $1;
+        my $v = $2;
+        $v =~ s/\\n/\n/g;
+        length($n) ? ($ENV{$n} = $v) : delete $ENV{$n};
     }
     return $self;
 }
