@@ -150,8 +150,19 @@ sub pam_file {
 
 sub auth_check {
     my $self = shift;
-    $self->trace("auth_check");
-    return 7; # PAM_AUTH_ERR /* Authentication failure */
+    $self->trace("auth_check:top");
+    chomp (my $pw = <STDIN> // "");
+    $self->pam_putenv( PAM_PW => ($pw // "") );
+    push @{ $self->stash->{pam_auth} ||= [] }, {
+        service   => $ENV{PAM_SERVICE},
+        user      => $ENV{PAM_USER},
+        pw        => $pw,
+    };
+    $self->trace("auth_check:end");
+    # Default pass if any non-empty password is provided
+    return length $pw ?
+        0 : # PAM_SUCCESS   /* Successful function return */
+        7 ; # PAM_AUTH_ERR  /* Authentication failure */
 }
 
 sub auth_acquire_session_lock {

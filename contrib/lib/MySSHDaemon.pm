@@ -44,8 +44,12 @@ sub run_pam_exec {
 
 sub auth_check {
     my $self = shift;
+    $self->SUPER::auth_check();
     $self->stamp("auth_check:MySSHDaemon");
-    return 7; # PAM_AUTH_ERR /* Authentication failure */
+    # SUCCESS if any non-empty password is provided
+    return length $ENV{PAM_PW} ?
+        0 : # PAM_SUCCESS   /* Successful function return */
+        7 ; # PAM_AUTH_ERR  /* Authentication failure */
 }
 
 1;
