@@ -25,23 +25,23 @@ sub init {}
 
 sub run {
     my $self = shift || __PACKAGE__;
+    # Make sure $self is a real object instead of just a class
     ref $self or $self = $self->new;
+    # Detect pam_exec case
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
         eval { $self->generate_pam_config } if !-f $self->pam_file;
         $self->{pam_id} = getppid();
         exit $self->run_pam_exec;
     }
-    else {
-        if (!grep { $_ eq "-D" } @{ $self->{run} }) {
-            # Without -D, then Detach and launch WITH -D
-            splice @{ $self->{run} }, 1, 0, "-D";
-            exit if fork;
-        }
-        # Now it's the perfect non-detach mode to allow easy monitoring
-        $ENV{NET_SSH_EXEC_PID} = $$;
-        $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $$ : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
-        exit $self->run_sshd;
+    # Detect missing "-D" case, then Detach and launch WITH "-D":
+    if (!grep { $_ eq "-D" } @{ $self->{run} }) {
+        splice @{ $self->{run} }, 1, 0, "-D";
+        exit if fork;
     }
+    # Now we know it's the perfect non-detach mode to allow easy monitoring
+    $ENV{NET_SSH_EXEC_PID} = $$;
+    $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $$ : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
+    exit $self->run_sshd;
 }
 
 sub pam_args {
@@ -72,7 +72,7 @@ sub pam_getenv {
             my $n = $1;
             my $v = $2;
             $v =~ s/\\n/\n/g;
-            length($v) ? ($ENV{$n} = $v) : delete $ENV{$n};
+            $ENV{$n} = $v;
         }
     }
     return $ENV{$name};
@@ -84,6 +84,7 @@ sub pam_putenv {
     my $value = shift // "";
     my $old_value = $self->pam_getenv($name) // "";
     return $self if $old_value eq $value;
+    $ENV{$name} = $value;
     my $file = $self->session_file;
     my $prev = {};
     sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
@@ -95,8 +96,7 @@ sub pam_putenv {
     }
     $contents = "";
     foreach my $n (sort keys %$prev) {
-        my $v = $prev->{$n};
-        $contents .= "$n=$v\n";
+        $contents .= "$n=$prev->{$n}\n";
     }
     seek $fh, 0, 0; # SEEK_SET
     print $fh $contents;
@@ -182,8 +182,8 @@ sub auth_sniff {
 sub auth_check {
     my $self = shift;
     $self->trace("auth_check:top");
-    my $pw = <STDIN>;
-    $self->pam_putenv( PAM_PW => ($pw // "") );
+    my $pw = <STDIN> // "";
+    $self->pam_putenv( PAM_PW => $pw );
     push @{ $self->stash->{auth_pw} ||= [] }, $pw;
     $self->trace("auth_check:end");
     # Default to SUCCESS if any random non-empty password is provided
