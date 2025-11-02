@@ -5,7 +5,7 @@ use warnings;
 our $VERSION = '0.021';
 
 use FindBin qw($Script);
-use Fcntl qw(O_CREAT O_EXCL O_RDWR O_WRONLY);
+use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
 
 # Method: new
 # Purpose: Initializer
@@ -59,13 +59,22 @@ sub pam_args {
 
 sub session_file {
     my $self = shift;
-    return $ENV{SESSION_FILE} ||= "/var/run/sshd/session-$self->{pam_id}.env";
+    return $self->{session_file} ||= "/var/run/sshd/session-$self->{pam_id}.env";
 }
 
 sub pam_getenv {
     my $self = shift;
     my $name = shift // "";
-    $self->pam_putenv();
+    if (sysopen my $fh, $self->session_file, O_RDONLY, 0600) {
+        my $contents = join "", <$fh>;
+        close $fh;
+        while ($contents =~ s/^(\w+)=(.*)\n//) {
+            my $n = $1;
+            my $v = $2;
+            $v =~ s/\\n/\n/g;
+            length($v) ? ($ENV{$n} = $v) : delete $ENV{$n};
+        }
+    }
     return $ENV{$name};
 }
 
@@ -73,20 +82,26 @@ sub pam_putenv {
     my $self = shift;
     my $name = shift;
     my $value = shift // "";
-    $value =~ s/\n/\\n/g;
+    my $old_value = $self->pam_getenv($name) // "";
+    return $self if $old_value eq $value;
     my $file = $self->session_file;
+    my $prev = {};
     sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
     my $contents = join "", <$fh>;
-    $contents .= "$name=$value\n" if $name;
+    $value =~ s/\n/\\n/g;
+    $contents .= "$name=$value\n";
+    while ($contents =~ s/^(\w+)=(.*)\n//) {
+        $prev->{$1} = $2;
+    }
+    $contents = "";
+    foreach my $n (sort keys %$prev) {
+        my $v = $prev->{$n};
+        $contents .= "$n=$v\n";
+    }
     seek $fh, 0, 0; # SEEK_SET
     print $fh $contents;
+    truncate($fh, tell $fh);
     close $fh;
-    while ($contents =~ s/^(\w+)=(.*)\n//) {
-        my $n = $1;
-        my $v = $2;
-        $v =~ s/\\n/\n/g;
-        length($n) ? ($ENV{$n} = $v) : delete $ENV{$n};
-    }
     return $self;
 }
 
@@ -98,7 +113,7 @@ sub run_pam_exec {
     my $method = "$type\_$step";
     my $code = $self->can($method) || "";
     $self->trace("run_pam_exec:[method=$method][code=$code]");
-    $code or return 0; # PAM_SUCCESS
+    $code ||= sub {0}; # PAM_SUCCESS
     $self->loadstash;
     $self->trace("run_pam_exec:[loadstash=".($self->session_file)."]");
     return [$code->($self), $self->trace("run_pam_exec:savestash"), $self->savestash]->[0];
@@ -171,7 +186,7 @@ sub auth_check {
     $self->pam_putenv( PAM_PW => ($pw // "") );
     push @{ $self->stash->{auth_pw} ||= [] }, $pw;
     $self->trace("auth_check:end");
-    # Default to SUCCESS if any random non-empty pasword is provided
+    # Default to SUCCESS if any random non-empty password is provided
     return length $pw ?
         0 : # PAM_SUCCESS   /* Successful function return */
         7 ; # PAM_AUTH_ERR  /* Authentication failure */
@@ -245,8 +260,10 @@ sub json {
 
 sub savestash {
     my $self = shift;
-    $self->pam_putenv( SESSION_FILE => $self->session_file );
+    $self->trace("savestash:top");
     $self->pam_putenv( STASH_JSON => $self->json->encode($self->stash) );
+    $self->pam_putenv( SESSION_FILE => $self->session_file );
+    $self->trace("savestash:end");
     return $self->stash;
 }
 
