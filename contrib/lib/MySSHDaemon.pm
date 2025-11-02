@@ -33,13 +33,13 @@ sub run_sshd {
     my $self = shift;
     $self->stash->{override_config_file} = "/etc/ssh/sshdproxy_config";
     $self->stamp("run_sshd");
-    $self->SUPER::run_sshd();
+    return $self->SUPER::run_sshd();
 }
 
 sub run_pam_exec {
     my $self = shift;
     $self->stamp("run_pam_exec");
-    $self->SUPER::run_pam_exec();
+    return $self->SUPER::run_pam_exec();
 }
 
 sub auth_check {
