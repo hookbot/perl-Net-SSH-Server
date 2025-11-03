@@ -192,7 +192,13 @@ sub auth_check {
         7 ; # PAM_AUTH_ERR  /* Authentication failure */
 }
 
-sub auth_acquire_session_lock {
+sub account_sniff {
+    my $self = shift;
+    $self->trace("account_sniff");
+    return 0; # PAM_SUCCESS
+}
+
+sub account_acquire_session_lock {
     my $self = shift;
     $self->trace("auth_acquire_session_lock");
     my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
@@ -231,15 +237,11 @@ sub auth_acquire_session_lock {
     return 0; # PAM_SUCCESS
 }
 
-sub account_sniff {
-    my $self = shift;
-    $self->trace("auth_sniff");
-    return 0; # PAM_SUCCESS
-}
+# account pam_env burner runs after "account" phase and before "session" phase.
 
-sub account_release_session_lock {
+sub session_release_session_lock {
     my $self = shift;
-    $self->trace("account_release_session_lock");
+    $self->trace("session_release_session_lock");
     my $lock_file = $self->pam_args->{lockfile} or !warn "account_release_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
     my $env_file  = $self->pam_args->{envfile}  or !warn "account_release_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
     unlink $env_file;
