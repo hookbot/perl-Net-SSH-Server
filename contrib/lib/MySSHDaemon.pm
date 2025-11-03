@@ -42,10 +42,13 @@ sub run_pam_exec {
     return $self->SUPER::run_pam_exec();
 }
 
-sub auth_check {
+# When "PasswordAuthentication yes" is enabled, then check passwd provided.
+# Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
+sub validate_pw {
     my $self = shift;
-    $self->SUPER::auth_check();
-    $self->stamp("auth_check:MySSHDaemon");
+    #my $user = $ENV{PAM_USER}  or return 7; # PAM_AUTH_ERR  /* Authentication failure */
+    my $pass = $ENV{PAM_PW} // "";
+    $self->stamp("validate_pw:MySSHDaemon");
     # SUCCESS if any non-empty password is provided
     return length $ENV{PAM_PW} ?
         0 : # PAM_SUCCESS   /* Successful function return */

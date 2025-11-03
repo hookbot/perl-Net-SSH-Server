@@ -186,10 +186,34 @@ sub auth_check {
     $self->pam_putenv( PAM_PW => $pw );
     push @{ $self->stash->{auth_pw} ||= [] }, $pw;
     $self->trace("auth_check:end");
-    # Default to SUCCESS if any random non-empty password is provided
+    return $self->validate_pw;
+}
+
+sub validate_nonempty {
+    my $self = shift;
+    my $pw = $ENV{PAM_PW} // "";
+    # Return SUCCESS if any random non-empty password is provided
     return length $pw ?
         0 : # PAM_SUCCESS   /* Successful function return */
         7 ; # PAM_AUTH_ERR  /* Authentication failure */
+}
+
+# When "PasswordAuthentication yes" is enabled, then check passwd provided.
+# Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
+sub validate_pw {
+    my $self = shift;
+    my $user = $ENV{PAM_USER}  or return 7; # PAM_AUTH_ERR  /* Authentication failure */
+    my $pass = $ENV{PAM_PW};
+    length ($pass // "")       or return 7; # PAM_AUTH_ERR  /* Authentication failure */
+    my @pwent = getpwnam $user or return 7; # PAM_AUTH_ERR  /* Authentication failure */
+    $pwent[1] && $pwent[1] =~ /^\$/;
+    # Compare UNIX password to ensure it matches
+    if (crypt($pass, $pwent[1]) eq $pwent[1]) {
+        return 0;  # PAM_SUCCESS   /* Successful function return */
+    }
+    else {
+        return 6;  # PAM_PERM_DENIED  /* Permission denied */
+    }
 }
 
 sub account_sniff {
