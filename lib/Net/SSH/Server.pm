@@ -41,6 +41,7 @@ sub run {
     # Now we know it's the perfect non-detach mode to allow easy monitoring
     $ENV{NET_SSH_EXEC_PID} = $$;
     $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $$ : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
+    $self->{pam_env_needed} = 1 if !$ENV{SESSION_FILE};
     exit $self->run_sshd;
 }
 
@@ -265,7 +266,8 @@ sub account_acquire_session_lock {
 
 sub session_release_session_lock {
     my $self = shift;
-    $self->trace("session_release_session_lock");
+    $self->trace("session_release_session_lock[pam_env_needed:$self->{pam_env_needed}]");
+    return 0 if $self->{pam_env_needed};
     my $lock_file = $self->pam_args->{lockfile} or !warn "account_release_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
     my $env_file  = $self->pam_args->{envfile}  or !warn "account_release_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
     unlink $env_file;
