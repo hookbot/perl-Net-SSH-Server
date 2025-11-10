@@ -30,7 +30,7 @@ sub run {
     # Detect pam_exec case
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
         eval { $self->generate_pam_config } if !-f $self->pam_file;
-        $self->{pam_id} = getppid();
+        $ENV{PAM_ID} = $self->{pam_id} = getppid();
         exit $self->run_pam_exec;
     }
     # Detect missing "-D" case, then Detach and launch WITH "-D":
@@ -40,7 +40,7 @@ sub run {
     }
     # Now we know it's the perfect non-detach mode to allow easy monitoring
     $ENV{NET_SSH_EXEC_PID} = $$;
-    $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $$ : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
+    $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
     $self->{pam_env_needed} = 1 if !$ENV{SESSION_FILE};
     exit $self->run_sshd;
 }
@@ -236,11 +236,12 @@ sub account_acquire_session_lock {
     }
     my $lock_goal = "$self->{pam_id}\n";
     if (open my $fh, "<", $lock_file) {
-        if ((<$fh> || "") eq $lock_goal) {
+        my $old_pam_id = <$fh> || "";
+        close $fh;
+        if ($old_pam_id eq $lock_goal) {
             $lock_goal = "";
         }
-        close $fh;
-        if ($lock_goal and time() - [stat $lock_file]->[9] > 11) {
+        elsif ($old_pam_id =~ /^(\d+)/ and !kill 0 => $1) {
             # Get rid of crusty stale mismatched lock file
             unlink $lock_file;
         }
