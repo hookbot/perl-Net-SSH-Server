@@ -265,7 +265,7 @@ sub account_acquire_session_lock {
 
 # account pam_env burner runs after "account" phase and before "session" phase.
 
-sub session_release_session_lock {
+sub open_session_release_session_lock {
     my $self = shift;
     $self->trace("session_release_session_lock[pam_env_needed:$self->{pam_env_needed}]");
     return 0 if $self->{pam_env_needed};
@@ -276,9 +276,9 @@ sub session_release_session_lock {
     return 0; # PAM_SUCCESS
 }
 
-sub session_sniff {
+sub open_session_sniff {
     my $self = shift;
-    $self->trace("session_sniff");
+    $self->trace("open_session_sniff");
     return 0; # PAM_SUCCESS
 }
 
