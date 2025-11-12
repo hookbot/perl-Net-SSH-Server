@@ -123,7 +123,7 @@ sub run_pam_exec {
     my $method = "$type\_$step";
     my $code = $self->can($method) || "";
     $self->trace("run_pam_exec:[method=$method][code=$code]");
-    $code ||= sub {0}; # PAM_SUCCESS
+    $code ||= sub {2}; # PAM_SYMBOL_ERR  /* Symbol not found */
     $self->loadstash;
     $self->trace("run_pam_exec:[loadstash=".($self->session_file)."]");
     if (my $file = $ENV{BANNER_FILE}) {
