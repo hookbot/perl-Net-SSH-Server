@@ -42,10 +42,11 @@ sub run_sshd {
 
 sub banner {
     my $self = shift;
-    my $env = join " ", map { "$_=$ENV{$_}" } sort keys %ENV;
+    my ($remote_addr, $remote_port, $server_addr, $server_port) = split / /, $ENV{SSH_CONNECTION};
     return qq{
-MySSHDaemon banner code ENV: [$env]
 **** Welcome to the BASTION BOUNCER BOX! ****
+MySSHDaemon custom banner.
+Connected from $remote_addr to $server_addr
 For SSH Public Key help, go here:
 https://website.com/settings.html
 };
