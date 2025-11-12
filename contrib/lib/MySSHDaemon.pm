@@ -43,19 +43,15 @@ sub run_sshd {
 sub banner {
     my $self = shift;
     my ($remote_addr, $remote_port, $server_addr, $server_port) = split / /, $ENV{SSH_CONNECTION};
+    $remote_addr = "[$remote_addr]" if $remote_addr =~ /:/;
+    $server_addr = "[$server_addr]" if $server_addr =~ /:/;
     return qq{
 **** Welcome to the BASTION BOUNCER BOX! ****
-MySSHDaemon custom banner.
-Connected from $remote_addr to $server_addr
+MySSHDaemon custom banner for service $ENV{PAM_SERVICE}
+Connected from $remote_addr:$remote_port to $server_addr:$server_port
 For SSH Public Key help, go here:
 https://website.com/settings.html
 };
-}
-
-sub run_pam_exec {
-    my $self = shift;
-    $self->stamp("run_pam_exec");
-    return $self->SUPER::run_pam_exec();
 }
 
 # When "PasswordAuthentication yes" is enabled, then check passwd provided.
