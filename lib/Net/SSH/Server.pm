@@ -69,9 +69,13 @@ sub pam_getenv {
     if (sysopen my $fh, $self->session_file, O_RDONLY, 0600) {
         my $contents = join "", <$fh>;
         close $fh;
-        while ($contents =~ s/^(\w+)=(.*)\n//) {
+        while ($contents =~ s/^(\w+)(=?)(.*)\n//) {
             my $n = $1;
-            my $v = $2;
+            if (!$2) {
+                delete $ENV{$n};
+                next;
+            }
+            my $v = $3;
             $v =~ s/\\n/\n/g;
             $ENV{$n} = $v;
         }
@@ -82,22 +86,27 @@ sub pam_getenv {
 sub pam_putenv {
     my $self = shift;
     my $name = shift;
-    my $value = shift // "";
-    my $old_value = $self->pam_getenv($name) // "";
-    return $self if $old_value eq $value;
-    $ENV{$name} = $value;
+    my $value = shift;
+    my $old_value = $self->pam_getenv($name);
+    return if !defined($value) && !defined($old_value) or defined($value) && defined($old_value) && $value eq $old_value;
+    if (defined $value) {
+        $ENV{$name} = $value;
+    }
+    else {
+        delete $ENV{$name};
+    }
     my $file = $self->session_file;
     my $prev = {};
     sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
     my $contents = join "", <$fh>;
     $value =~ s/\n/\\n/g;
     $contents .= "$name=$value\n";
-    while ($contents =~ s/^(\w+)=(.*)\n//) {
-        $prev->{$1} = $2;
+    while ($contents =~ s/^(\w+)(=?)(.*)\n//) {
+        $prev->{$1} = $2 ? $3 : undef;
     }
     $contents = "";
     foreach my $n (sort keys %$prev) {
-        $contents .= "$n=$prev->{$n}\n";
+        $contents .= $n . (defined($prev->{$n}) ? "=$prev->{$n}" : "") . "\n";
     }
     seek $fh, 0, 0; # SEEK_SET
     print $fh $contents;
