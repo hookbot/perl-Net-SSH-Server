@@ -109,7 +109,6 @@ sub pam_putenv {
 sub run_pam_exec {
     my $self = shift;
     my $type = $ENV{PAM_TYPE} or die "pam_exec: type failure\n";
-    unlink $self->banner_file if -e $self->banner_file;
     my $step = $self->pam_args->{pam_exec_step} or die "pam_exec: step failure\n";
     $step =~ s/-/_/g;
     my $method = "$type\_$step";
@@ -118,6 +117,10 @@ sub run_pam_exec {
     $code ||= sub {0}; # PAM_SUCCESS
     $self->loadstash;
     $self->trace("run_pam_exec:[loadstash=".($self->session_file)."]");
+    if (my $file = $ENV{BANNER_FILE}) {
+        unlink $file;
+        $self->pam_putenv( BANNER_FILE => undef );
+    }
     return [$code->($self), $self->trace("run_pam_exec:savestash"), $self->savestash]->[0];
 }
 
@@ -167,6 +170,7 @@ sub run_sshd {
         $ENV{PAM_ID} = $self->{pam_id} = $$;
         if (my $banner_text = eval { $banner_code->($self) }) {
             my $banner_file = $self->banner_file;
+            $self->pam_putenv( BANNER_FILE => $banner_file );
             if (open my $fh, ">", $banner_file) {
                 print $fh $banner_text;
                 close $fh;
