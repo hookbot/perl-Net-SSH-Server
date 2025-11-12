@@ -109,6 +109,7 @@ sub pam_putenv {
 sub run_pam_exec {
     my $self = shift;
     my $type = $ENV{PAM_TYPE} or die "pam_exec: type failure\n";
+    unlink $self->banner_file if -e $self->banner_file;
     my $step = $self->pam_args->{pam_exec_step} or die "pam_exec: step failure\n";
     $step =~ s/-/_/g;
     my $method = "$type\_$step";
@@ -153,8 +154,35 @@ sub run_sshd {
     my $target = $self->target;
     die "$target: Not executable\n" if !-x $target;
     die "$0: Invalid invocation\n" if $target eq $self->{run}->[0];
+    my $banner_code = $self->can("banner");
+    if ($banner_code and my $sockaddr = getpeername STDIN) {
+        # Probably -R mode or xinetd-style connection. Extract connection info.
+        require Socket;
+        my ($family, $port) = unpack vn => $sockaddr;
+        $ENV{SSH_CONNECTION}  = $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
+        $ENV{SSH_CONNECTION} .= " $port ";
+        ($family, $port) = unpack vn => ($sockaddr = getsockname STDIN);
+        $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
+        $ENV{SSH_CONNECTION} .= " $port";
+        $ENV{PAM_ID} = $self->{pam_id} = $$;
+        if (my $banner_text = eval { $banner_code->($self) }) {
+            my $banner_file = $self->banner_file;
+            if (open my $fh, ">", $banner_file) {
+                print $fh $banner_text;
+                close $fh;
+                splice @{ $self->{run} }, 1, 0, "-o", "Banner $banner_file";
+            }
+        }
+    }
     $self->trace("run_sshd:EndOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
     exec { $target } @{ $self->{run} } or die "$0: spawn failure: $!\n";
+}
+
+sub banner_file {
+    my $self = shift;
+    my $id = $self->{pam_id} ||= $ENV{PAM_ID};
+    my $service = $self->pam_service;
+    return "/var/run/sshd/banner-$service-$id.txt";
 }
 
 sub target {

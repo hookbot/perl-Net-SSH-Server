@@ -32,8 +32,23 @@ sub init {
 sub run_sshd {
     my $self = shift;
     $self->stash->{override_config_file} = "/etc/ssh/sshdproxy_config";
+    $self->stash->{override_config_directory} = "/etc/ssh/sshdproxy_config.d";
+    #$self->stash->{banner_code} = sub { "Hello World" };
+    #$self->stash->{banner_method} = "banner";
+    #$self->stash->{banner_txt} = "WELCOME TO SSH SERVER!\n";
     $self->stamp("run_sshd");
     return $self->SUPER::run_sshd();
+}
+
+sub banner {
+    my $self = shift;
+    my $env = join " ", map { "$_=$ENV{$_}" } sort keys %ENV;
+    return qq{
+MySSHDaemon banner code ENV: [$env]
+**** Welcome to the BASTION BOUNCER BOX! ****
+For SSH Public Key help, go here:
+https://website.com/settings.html
+};
 }
 
 sub run_pam_exec {
