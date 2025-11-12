@@ -304,6 +304,21 @@ sub account_acquire_session_lock {
     return 0; # PAM_SUCCESS
 }
 
+sub account_check {
+    my $self = shift;
+    $self->trace("account_check:top");
+    return $self->validate_user;
+}
+
+# Verify PAM_USER provided.
+# Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
+sub validate_user {
+    my $self = shift;
+    my $user = $ENV{PAM_USER} or return 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
+    my @ent = getpwnam $user  or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    return 0;                               # PAM_SUCCESS            /* Successful function return */
+}
+
 # account pam_env burner runs after "account" phase and before "session" phase.
 
 sub open_session_release_session_lock {
@@ -317,9 +332,23 @@ sub open_session_release_session_lock {
     return 0; # PAM_SUCCESS
 }
 
+sub open_session_check {
+    my $self = shift;
+    $self->trace("session_check:top");
+    return $self->stash->{pam_error} || 0;
+}
+
 sub open_session_sniff {
     my $self = shift;
     $self->trace("open_session_sniff");
+    return 0; # PAM_SUCCESS
+}
+
+sub open_session_printout {
+    my $self = shift;
+    if (my $output = $self->stash->{session_output}) {
+        print STDERR $output;
+    }
     return 0; # PAM_SUCCESS
 }
 
