@@ -99,11 +99,12 @@ sub pam_putenv {
     my $prev = {};
     sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
     my $contents = join "", <$fh>;
-    $value =~ s/\n/\\n/g;
-    $contents .= "$name=$value\n";
+    $value =~ s/\n/\\n/g if defined $value;
+    #$contents .= $name . (defined($value) ? "=$value" : "") . "\n";
     while ($contents =~ s/^(\w+)(=?)(.*)\n//) {
         $prev->{$1} = $2 ? $3 : undef;
     }
+    $prev->{$name} = $value;
     $contents = "";
     foreach my $n (sort keys %$prev) {
         $contents .= $n . (defined($prev->{$n}) ? "=$prev->{$n}" : "") . "\n";
@@ -315,7 +316,9 @@ sub account_check {
 sub validate_user {
     my $self = shift;
     my $user = $ENV{PAM_USER} or return 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
-    my @ent = getpwnam $user  or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    my @ent = getpwnam $user;
+    $self->trace("validate_user:USER=[$user]:FOUND[@ent]");
+    @ent                      or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
     return 0;                               # PAM_SUCCESS            /* Successful function return */
 }
 
