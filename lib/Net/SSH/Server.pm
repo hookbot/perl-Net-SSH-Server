@@ -31,6 +31,7 @@ sub run {
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
         eval { $self->generate_pam_config } if !-f $self->pam_file;
         $ENV{PAM_ID} = $self->{pam_id} = getppid();
+        $self->{pam_env_needed} = !$ENV{SESSION_FILE};
         exit $self->run_pam_exec;
     }
     # Detect missing "-D" case, then Detach and launch WITH "-D":
@@ -41,7 +42,6 @@ sub run {
     # Now we know it's the perfect non-detach mode to allow easy monitoring
     $ENV{NET_SSH_EXEC_PID} = $$;
     $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
-    $self->{pam_env_needed} = 1 if !$ENV{SESSION_FILE};
     exit $self->run_sshd;
 }
 
@@ -60,7 +60,9 @@ sub pam_args {
 
 sub session_file {
     my $self = shift;
-    return $self->{session_file} ||= "/var/run/sshd/session-$self->{pam_id}.env";
+    my $id = $self->{pam_id} ||= $ENV{PAM_ID};
+    my $service = $self->pam_service;
+    return $self->{session_file} ||= "/var/run/sshd/session-$service-$id.env";
 }
 
 sub pam_getenv {
