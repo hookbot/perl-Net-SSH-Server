@@ -97,6 +97,7 @@ sub pam_putenv {
     else {
         delete $ENV{$name};
     }
+    $self->{pam_env_needed} = 1;
     my $file = $self->session_file;
     my $prev = {};
     sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
@@ -332,8 +333,10 @@ sub open_session_release_session_lock {
     return 0 if $self->{pam_env_needed};
     my $lock_file = $self->pam_args->{lockfile} or !warn "account_release_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
     my $env_file  = $self->pam_args->{envfile}  or !warn "account_release_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
+    my $session_file = $self->session_file      or !warn "account_release_session_lock session missing\n"  or return 14; # PAM_SESSION_ERR
     unlink $env_file;
     unlink $lock_file;
+    unlink $session_file;
     return 0; # PAM_SUCCESS
 }
 
@@ -365,8 +368,10 @@ sub json {
 sub savestash {
     my $self = shift;
     $self->trace("savestash:top");
-    $self->pam_putenv( STASH_JSON => $self->json->encode($self->stash) );
-    $self->pam_putenv( SESSION_FILE => $self->session_file );
+    if ($self->{pam_env_needed}) {
+        $self->pam_putenv( STASH_JSON => $self->json->encode($self->stash) );
+        $self->pam_putenv( SESSION_FILE => $self->session_file );
+    }
     $self->trace("savestash:end");
     return $self->stash;
 }
