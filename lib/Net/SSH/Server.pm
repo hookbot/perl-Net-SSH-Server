@@ -34,9 +34,9 @@ sub run {
         $self->{pam_env_needed} = !$ENV{SESSION_FILE};
         exit $self->run_pam_exec;
     }
-    # Detect missing "-D" case, then Detach and launch WITH "-D":
+    # Implement missing "-D" case, by Detaching and launching WITH "-D":
     if (!grep { $_ eq "-D" } @{ $self->{run} }) {
-        splice @{ $self->{run} }, 1, 0, "-D";
+        $self->cmdline("-D");
         exit if fork;
     }
     # Now we know it's the perfect non-detach mode to allow easy monitoring
@@ -45,14 +45,19 @@ sub run {
     exit $self->run_sshd;
 }
 
+sub cmdline {
+    my $self = shift;
+    splice @{ $self->{run} }, 1, 0, @_ if @_;
+    return @{ $self->{run} }[1..$#{ $self->{run} }] if wantarray;
+    return;
+}
+
 sub pam_args {
     my $self = shift;
     return $self->{pam_args} ||= do {
         my $args = {};
-        for (my $i = 1; $i < @{ $self->{run} }; $i++) {
-            if ($self->{run}->[$i] =~ /^(\w+)=(.*)/) {
-                $args->{$1} = $2;
-            }
+        foreach my $arg ($self->cmdline) {
+            $args->{$1} = $2 if $arg =~ /^(\w+)=(.*)/;
         }
         $args;
     };
@@ -103,7 +108,6 @@ sub pam_putenv {
     sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
     my $contents = join "", <$fh>;
     $value =~ s/\n/\\n/g if defined $value;
-    #$contents .= $name . (defined($value) ? "=$value" : "") . "\n";
     while ($contents =~ s/^(\w+)(=?)(.*)\n//) {
         $prev->{$1} = $2 ? $3 : undef;
     }
@@ -137,13 +141,11 @@ sub run_pam_exec {
     return [$code->($self), $self->trace("run_pam_exec:savestash"), $self->savestash]->[0];
 }
 
-sub run_sshd {
+# Munge commandline arguments based on settings
+sub init_commandline_args {
     my $self = shift;
-    $self->trace("run_sshd:TopOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
-    if ($ENV{NET_SSH_OVERRIDE}) {
-        # Already munged
-    }
-    else {
+    $self->trace("init_commandline_args:TopOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
+    if (!$ENV{NET_SSH_OVERRIDE}) {
         my $dir = $self->stash->{override_config_directory};
         $dir = undef if $dir and !-d $dir;
         my $file = $self->stash->{override_config_file};
@@ -165,31 +167,50 @@ sub run_sshd {
         else {
             $ENV{NET_SSH_OVERRIDE} = "/dev/null";
         }
-        push @{ $self->{run} }, (-f => $ENV{NET_SSH_OVERRIDE}) if $dir || $file;
+        $self->cmdline(-f => $ENV{NET_SSH_OVERRIDE}) if $dir || $file;
     }
-    my $target = $self->target;
-    die "$target: Not executable\n" if !-x $target;
-    die "$0: Invalid invocation\n" if $target eq $self->{run}->[0];
-    my $banner_code = $self->can("banner");
-    if ($banner_code and my $sockaddr = getpeername STDIN) {
-        # Probably -R mode or xinetd-style connection. Extract connection info.
+    return;
+}
+
+# Run immediately after SSH client connects
+sub init_connection {
+    my $self = shift;
+    # Extract connection info early in case it's needed for an early hook.
+    if (!$ENV{SSH_CONNECTION}) {
         require Socket;
+        my $sockaddr = getpeername STDIN;
         my ($family, $port) = unpack vn => $sockaddr;
         $ENV{SSH_CONNECTION}  = $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
         $ENV{SSH_CONNECTION} .= " $port ";
         ($family, $port) = unpack vn => ($sockaddr = getsockname STDIN);
         $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
         $ENV{SSH_CONNECTION} .= " $port";
-        $ENV{PAM_ID} = $self->{pam_id} = $$;
-        if (my $banner_text = eval { $banner_code->($self) }) {
-            my $banner_file = $self->banner_file;
-            $self->pam_putenv( BANNER_FILE => $banner_file );
-            if (open my $fh, ">", $banner_file) {
-                print $fh $banner_text;
-                close $fh;
-                splice @{ $self->{run} }, 1, 0, "-o", "Banner $banner_file";
-            }
+    }
+    my $banner_code = $self->can("banner");
+    if ($banner_code and my $banner_text = eval { $banner_code->($self) }) {
+        my $banner_file = $self->banner_file;
+        $self->pam_putenv( BANNER_FILE => $banner_file );
+        if (open my $fh, ">", $banner_file) {
+            print $fh $banner_text;
+            close $fh;
+            $self->cmdline("-o", "Banner $banner_file");
         }
+    }
+    $self->trace("init_connection:end");
+    return $ENV{SSH_CONNECTION};
+}
+
+sub run_sshd {
+    my $self = shift;
+    $self->trace("run_sshd:top");
+    $self->init_commandline_args;
+    my $target = $self->target;
+    die "$target: Not executable\n" if !-x $target;
+    die "$0: Invalid invocation\n" if $target eq $self->{run}->[0];
+    if (my $sockaddr = getpeername STDIN) {
+        # Probably -R mode or xinetd-style connection.
+        $ENV{PAM_ID} = $self->{pam_id} = $$;
+        $self->init_connection;
     }
     $self->trace("run_sshd:EndOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
     exec { $target } @{ $self->{run} } or die "$0: spawn failure: $!\n";
@@ -310,6 +331,7 @@ sub account_acquire_session_lock {
 
 sub account_check {
     my $self = shift;
+    $self->pam_putenv( PAM_USER => $ENV{PAM_USER} );
     $self->trace("account_check:top");
     return $self->validate_user;
 }
