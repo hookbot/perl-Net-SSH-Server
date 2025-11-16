@@ -186,6 +186,10 @@ sub init_connection {
         $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
         $ENV{SSH_CONNECTION} .= " $port";
     }
+    if (my $failover_user = $self->stash->{failover_user}) {
+        $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
+        $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
+    }
     my $banner_code = $self->can("banner");
     if ($banner_code and my $banner_text = eval { $banner_code->($self) }) {
         my $banner_file = $self->banner_file;
@@ -198,6 +202,15 @@ sub init_connection {
     }
     $self->trace("init_connection:end");
     return $ENV{SSH_CONNECTION};
+}
+
+sub preload_so {
+    my $self = shift;
+    if (my $shared_object_file = shift) {
+        $ENV{LD_PRELOAD} ||= "";
+        $ENV{LD_PRELOAD} = join ":", $shared_object_file, split /:+/, $ENV{LD_PRELOAD};
+    }
+    return $ENV{LD_PRELOAD};
 }
 
 sub run_sshd {
