@@ -269,7 +269,7 @@ sub validate_nonempty {
 # Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
 sub validate_pw {
     my $self = shift;
-    my $user = $ENV{PAM_USER}  or return 7; # PAM_AUTH_ERR  /* Authentication failure */
+    my $user = $ENV{PAM_USER}  or return 8; # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
     my $pass = $ENV{PAM_PW};
     length ($pass // "")       or return 7; # PAM_AUTH_ERR  /* Authentication failure */
     my @pwent = getpwnam $user or return 7; # PAM_AUTH_ERR  /* Authentication failure */
@@ -331,7 +331,6 @@ sub account_acquire_session_lock {
 
 sub account_check {
     my $self = shift;
-    $self->pam_putenv( PAM_USER => $ENV{PAM_USER} );
     $self->trace("account_check:top");
     return $self->validate_user;
 }
