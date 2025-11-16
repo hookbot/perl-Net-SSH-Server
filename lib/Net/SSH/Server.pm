@@ -208,7 +208,9 @@ sub preload_so {
     my $self = shift;
     if (my $shared_object_file = shift) {
         $ENV{LD_PRELOAD} ||= "";
-        $ENV{LD_PRELOAD} = join ":", $shared_object_file, split /:+/, $ENV{LD_PRELOAD};
+        if ($ENV{LD_PRELOAD} !~ /(^|:)\Q$shared_object_file\E($|:)/) {
+            $ENV{LD_PRELOAD} = join ":", $shared_object_file, split /:+/, $ENV{LD_PRELOAD};
+        }
     }
     return $ENV{LD_PRELOAD};
 }
