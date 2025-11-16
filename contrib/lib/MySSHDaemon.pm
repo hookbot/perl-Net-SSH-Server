@@ -67,4 +67,19 @@ sub validate_pw {
         7 ; # PAM_AUTH_ERR  /* Authentication failure */
 }
 
+# Verify PAM_USER provided.
+# Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
+sub validate_user {
+    my $self = shift;
+    my $user = $ENV{PAM_USER} or return 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
+    my @ent = getpwnam $user;
+    $self->trace("MySSHDaemon::validate_user:USER=[$user]:FOUND[@ent]");
+    #@ent                     or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    # Allow any user that smells okay:
+    $user =~ /^[\w\-\@]+$/    or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    $self->pam_putenv( SSH_USER => $user );
+    #$self->pam_putenv( USER => $user ); ### Totally doesn't work because bash bricks over $USER immediately
+    return 0;                               # PAM_SUCCESS            /* Successful function return */
+}
+
 1;
