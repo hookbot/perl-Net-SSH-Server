@@ -65,7 +65,8 @@ struct passwd *getpwnam(const char *name) {
 
     // Copy entire passwd struct (shallow copy)
     fallback_pw = *pw;
-    strncpy(fallback_name, name, sizeof(fallback_name));
+    strncpy(fallback_name, name, LOGIN_NAME_MAX);
+    fallback_name[LOGIN_NAME_MAX] = '\0';
     fallback_pw.pw_name = fallback_name;
 
     return &fallback_pw;
