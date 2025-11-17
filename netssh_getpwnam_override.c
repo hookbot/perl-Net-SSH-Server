@@ -42,10 +42,7 @@ static void __attribute__((constructor)) init_constructor(void)
 }
 
 struct passwd *getpwnam(const char *name) {
-    // XXX: init if not env_checked already?
-    //init_getpwnam();
-
-    /* Call the real one first */
+    /* Try the real one first */
     struct passwd *pw = real_getpwnam(name);
     if (pw != NULL || !default_user) {
         /* Real user exists → return normally, regardless of failover */
@@ -54,5 +51,18 @@ struct passwd *getpwnam(const char *name) {
     }
 
     /* Failover to default_user */
-    return real_getpwnam(default_user);
+    pw = real_getpwnam(default_user);
+    if (!pw) {
+        return NULL; // If even the default_user failed, then there's nothing else I can do to help here.
+    }
+
+    // XXX: Does this leak memory by not free'ing the old pw->pw_name string or the pw structure itself?
+    // Make a deep copy so we can replace pw_name
+    struct passwd *copy = malloc(sizeof(struct passwd));
+    memcpy(copy, pw, sizeof(struct passwd));
+
+    // Replace *only* the username
+    copy->pw_name = strdup(name);
+
+    return copy;
 }
