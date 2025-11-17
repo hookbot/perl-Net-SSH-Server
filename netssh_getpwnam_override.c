@@ -5,19 +5,26 @@
 #include <stdlib.h>
 #include <pthread.h>
 
+/* Stolen from /usr/include/bits/local_lim.h */
+#define LOGIN_NAME_MAX 256
+
 /* Pointer to the original getpwnam() */
 typedef struct passwd *(*orig_getpwnam_t)(const char *);
 static orig_getpwnam_t real_getpwnam = NULL;
 
 /* Read the env variable only once */
 static const char *default_user = NULL;
-static int env_checked = 0;
+static int initialized = 0;
+
+/* static structure to avoid memory leaks of malloc */
+static struct passwd fallback_pw;
+static char fallback_name[LOGIN_NAME_MAX + 1]; /* avoid memory leaks from strdup */
 
 /* once control so init runs exactly once even if constructor + race */
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 
 static void init_getpwnam(void) {
-    if (!env_checked) {
+    if (!initialized) {
         if (!real_getpwnam) {
             real_getpwnam = (orig_getpwnam_t)dlsym(RTLD_NEXT, "getpwnam");
         }
@@ -30,7 +37,7 @@ static void init_getpwnam(void) {
             /* duplicate for safety in case env changes later */
             default_user = strdup(default_user);
         }
-        env_checked = 1;
+        initialized = 1;
     }
 }
 
@@ -56,13 +63,10 @@ struct passwd *getpwnam(const char *name) {
         return NULL; // If even the default_user failed, then there's nothing else I can do to help here.
     }
 
-    // XXX: Does this leak memory by not free'ing the old pw->pw_name string or the pw structure itself?
-    // Make a deep copy so we can replace pw_name
-    struct passwd *copy = malloc(sizeof(struct passwd));
-    memcpy(copy, pw, sizeof(struct passwd));
+    // Copy entire passwd struct (shallow copy)
+    fallback_pw = *pw;
+    strncpy(fallback_name, name, sizeof(fallback_name));
+    fallback_pw.pw_name = fallback_name;
 
-    // Replace *only* the username
-    copy->pw_name = strdup(name);
-
-    return copy;
+    return &fallback_pw;
 }
