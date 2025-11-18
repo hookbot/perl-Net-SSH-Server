@@ -27,6 +27,9 @@ sub run {
     my $self = shift || __PACKAGE__;
     # Make sure $self is a real object instead of just a class
     ref $self or $self = $self->new;
+    if ($< and $ENV{SHELL}) {
+        exit $self->run_shell;
+    }
     # Detect pam_exec case
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
         eval { $self->generate_pam_config } if !-f $self->pam_file;
@@ -43,6 +46,14 @@ sub run {
     $ENV{NET_SSH_EXEC_PID} = $$;
     $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
     exit $self->run_sshd;
+}
+
+sub run_shell {
+    my $self = shift;
+    my @pw = getpwuid $<;
+    print "Ran as user: [@pw]\n";
+    print "Spawn shell: [@{ $self->{run} }]\n";
+    return 0;
 }
 
 sub cmdline {
@@ -209,6 +220,7 @@ sub init_connection {
     };
     if ($failover_user) {
         $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
+        $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
         $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
     }
     my $banner_code = $self->can("banner");
