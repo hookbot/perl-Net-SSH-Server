@@ -14,6 +14,7 @@ static orig_getpwnam_t real_getpwnam = NULL;
 
 /* Read the env variable only once */
 static const char *default_user = NULL;
+static char *default_shell = NULL;
 static int initialized = 0;
 
 /* static structure to avoid memory leaks of malloc */
@@ -36,6 +37,14 @@ static void init_getpwnam(void) {
         if (default_user) {
             /* duplicate for safety in case env changes later */
             default_user = strdup(default_user);
+        }
+        default_shell = getenv("NET_SSH_FALLBACK_SHELL");
+        if (default_shell && !*default_shell) {
+            default_shell = NULL;
+        }
+        if (default_shell) {
+            /* duplicate for safety in case env changes later */
+            default_shell = strdup(default_shell);
         }
         initialized = 1;
     }
@@ -68,6 +77,7 @@ struct passwd *getpwnam(const char *name) {
     strncpy(fallback_name, name, LOGIN_NAME_MAX);
     fallback_name[LOGIN_NAME_MAX] = '\0';
     fallback_pw.pw_name = fallback_name;
+    if (default_shell) fallback_pw.pw_shell = default_shell;
 
     return &fallback_pw;
 }
