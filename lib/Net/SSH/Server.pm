@@ -53,6 +53,7 @@ sub run_shell {
     my @pw = getpwuid $<;
     print "Ran as user: [@pw]\n";
     print "Spawn shell: [@{ $self->{run} }]\n";
+    print "ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
     return 0;
 }
 
