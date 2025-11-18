@@ -36,6 +36,7 @@ sub run_sshd {
     #$self->stash->{banner_code} = sub { "Hello World" };
     #$self->stash->{banner_method} = "banner";
     #$self->stash->{banner_txt} = "WELCOME TO SSH SERVER!\n";
+    $self->stash->{failover_user} = "sshproxy";
     $self->stamp("run_sshd");
     return $self->SUPER::run_sshd();
 }
@@ -67,19 +68,22 @@ sub validate_pw {
         7 ; # PAM_AUTH_ERR  /* Authentication failure */
 }
 
-# Verify PAM_USER provided.
-# Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
+# Input: $user
+# Return: $uid if valid
+# DIE with PAM_* error code if $user is not valid user.
 sub validate_user {
     my $self = shift;
-    my $user = $ENV{PAM_USER} or return 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
+    my $user = shift        or die 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
     my @ent = getpwnam $user;
     $self->trace("MySSHDaemon::validate_user:USER=[$user]:FOUND[@ent]");
-    #@ent                     or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
     # Allow any user that smells okay:
-    $user =~ /^[\w\-\@]+$/    or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
-    $self->pam_putenv( SSH_USER => $user );
+    $user =~ /^[\w\-\@]+$/  or die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    my $uid = getpwnam "sshproxy"; # $self->stash->{failover_user}
+    return $uid if defined $uid and length $uid;
+    die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    #$self->pam_putenv( SSH_USER => $user );
     #$self->pam_putenv( USER => $user ); ### Totally doesn't work because bash bricks over $USER immediately
-    return 0;                               # PAM_SUCCESS            /* Successful function return */
+    #return 0;                               # PAM_SUCCESS            /* Successful function return */
 }
 
 1;

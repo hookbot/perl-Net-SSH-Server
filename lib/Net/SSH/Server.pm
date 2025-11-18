@@ -186,7 +186,28 @@ sub init_connection {
         $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
         $ENV{SSH_CONNECTION} .= " $port";
     }
-    if (my $failover_user = $self->stash->{failover_user}) {
+    my $failover_user = exists $self->stash->{failover_user} ? $self->stash->{failover_user} : do {
+        # No explicit failover_user? Try auto-detecting with random bogus fake user:
+        my @pw;
+        my $test = "a";
+        my $tries = 100;
+        while ($tries-->0 and @pw = getpwnam ++$test) {}
+        my $name = undef;
+        if (!@pw) {
+            # Found a bogus user $test, so run it through validate_user to see if it passes.
+            my $uid = -1;
+            my $pam_error = 0; # PAM_SUCCESS
+            eval {
+                #local $SIG{__DIE__} = sub { $pam_error = $_[0] };
+                $uid = $self->validate_user;
+            };
+            $pam_error = $@ =~ /^(\d+)/ ? $1 : 0;
+            $self->trace("init_connection:[test_user=$test][uid=$uid][pam_error=$pam_error]");
+            ($name) = getpwuid $uid if defined $uid;
+        }
+        $name;
+    };
+    if ($failover_user) {
         $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
         $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
     }
@@ -347,18 +368,28 @@ sub account_acquire_session_lock {
 sub account_check {
     my $self = shift;
     $self->trace("account_check:top");
-    return $self->validate_user;
+    my $uid = undef;
+    my $pam_error = 0; # PAM_SUCCESS
+    eval {
+        #local $SIG{__DIE__} = sub { $pam_error = $_[0] };
+        $uid = $self->validate_user($ENV{PAM_USER});
+    };
+    $pam_error = $@ =~ /^(\d+)/ ? $1 : 0;
+    $pam_error ||= 10 if !defined $uid; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    $self->trace("account_check:[uid=".($uid // "(undef)")."][pam_error=$pam_error]");
+    return $pam_error;
 }
 
-# Verify PAM_USER provided.
-# Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
+# Input: $user
+# Return: $uid if valid
+# DIE with PAM_* error code if $user is not valid user.
 sub validate_user {
     my $self = shift;
-    my $user = $ENV{PAM_USER} or return 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
+    my $user = shift or die 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
     my @ent = getpwnam $user;
     $self->trace("validate_user:USER=[$user]:FOUND[@ent]");
-    @ent                      or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
-    return 0;                               # PAM_SUCCESS            /* Successful function return */
+    defined(my $uid = @ent > 3 && $ent[2]) or die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    return $uid;
 }
 
 # account pam_env burner runs after "account" phase and before "session" phase.
