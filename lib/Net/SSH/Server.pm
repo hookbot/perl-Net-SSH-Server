@@ -31,6 +31,9 @@ our $valid_ssh_options = {
     "no-agent-forwarding" => "",
     "no-X11-forwarding" => "",
     "no-pty" => "",
+
+    # Fake option to provide pubkey comment
+    comment => "special",
 };
 
 # Method: new
@@ -117,8 +120,11 @@ sub validate_pubkey {
             next if /^\s*\#/;
             if (/^(.*?)\b\Q$key\E(\s.*)/) {
                 my $prefix = $1;
+                my $comment = $2;
+                $comment =~ s/^\s+//;
                 my $options = {};
-                while ($prefix =~ s/^([^=]+)=?(?:|"([^\"]*)"|([^\",]*))(?: |,)//) {
+                $options->{comment} = $comment if length $comment;
+                while ($prefix =~ s/^([^=]+)=?(?:|"([^\"]*)"|([^\"\ ,]*))[\ ,]//) {
                     my $opt = $1;
                     my $val = defined $2 ? $2 : defined $3 ? $3 : "";
                     next unless exists $valid_ssh_options->{$opt} or $valid_ssh_options->{"no-$opt"};
@@ -174,12 +180,18 @@ sub run_authorizedkeyscommand {
     $self->savestash;
     return 0 if !$options or "ARRAY" ne ref $options;
     my $valid_options = [];
+    my $comment = undef;
     foreach my $opt (@$options) {
-        if ($opt =~ /^([\w\-]+)/) {
+        if ($opt =~ /^comment=(.*)/) {
+            $comment = $1;
+            $comment = $1 if $comment =~ /"(.*)"/;
+        }
+        elsif ($opt =~ /^([\w\-]+)/) {
             push @$valid_options, $opt if exists $valid_ssh_options->{$1} or exists $valid_ssh_options->{"no-$1"};
         }
     }
-    my $line = "$keytype $pubkey\n";
+    my $line = "$keytype $pubkey";
+    $line .= $comment ? " $comment\n" : "\n";
     if (@$valid_options) {
         $line = join(",", @$valid_options)." ".$line;
     }
