@@ -59,6 +59,7 @@ sub run {
     # Detect AuthorizedKeysCommand
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^action=verifypubkey$/) {
         $ENV{PAM_ID} = $self->{pam_id} = getppid();
+        $self->{pam_env_needed} = !$ENV{SESSION_FILE};
         exit $self->run_authorizedkeyscommand;
     }
     # Detect pam_exec case
@@ -108,6 +109,8 @@ sub validate_pubkey {
     my $args = shift;
     my $file = $args->{file} ||= "$args->{homedir}/.ssh/authorized_keys";
     my $key = "$args->{keytype} $args->{pubkey}";
+    my $key_history = $self->stash->{auth_pubkey} ||= [];
+    push @$key_history, $key if !grep { $_ eq $key} @$key_history;
     $self->trace("validate_pubkey:[file=$file]SCANFOR[$key]");
     if (open my $fh, "<", $file) {
         while (<$fh>) {
@@ -133,6 +136,7 @@ sub validate_pubkey {
 sub run_authorizedkeyscommand {
     my $self = shift;
     my (undef, $user, $homedir, $keytype, $pubkey, $fingerprint) = $self->cmdline;
+    $self->loadstash;
     my $args = {
         user    => $user,
         homedir => $homedir,
@@ -167,6 +171,7 @@ sub run_authorizedkeyscommand {
             $options = $options_list;
         }
     }
+    $self->savestash;
     return 0 if !$options or "ARRAY" ne ref $options;
     my $valid_options = [];
     foreach my $opt (@$options) {
