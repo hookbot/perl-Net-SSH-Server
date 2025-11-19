@@ -112,8 +112,8 @@ sub validate_pubkey {
     my $args = shift;
     my $file = $args->{file} ||= "$args->{homedir}/.ssh/authorized_keys";
     my $key = "$args->{keytype} $args->{pubkey}";
-    my $key_history = $self->stash->{auth_pubkey} ||= [];
-    push @$key_history, $key if !grep { $_ eq $key} @$key_history;
+    my $auth_history = $self->stash->{auth} ||= [];
+    push @$auth_history, { pubkey => $key } if !grep { ($_->{pubkey} // "") eq $key} @$auth_history;
     $self->trace("validate_pubkey:[file=$file]SCANFOR[$key]");
     if (open my $fh, "<", $file) {
         while (<$fh>) {
@@ -442,7 +442,7 @@ sub auth_check {
     $self->trace("auth_check:top");
     my $pw = <STDIN> // "";
     $self->pam_putenv( PAM_PW => $pw );
-    push @{ $self->stash->{auth_pw} ||= [] }, $pw;
+    push @{ $self->stash->{auth} ||= [] }, { password => $pw };
     $self->trace("auth_check:end");
     return $self->validate_pw;
 }
