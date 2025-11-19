@@ -8,20 +8,28 @@ use FindBin qw($Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
 
 our $valid_ssh_options = {
+    # All possible authorized_keys options, according to "man sshd":
     command => "string",
     environment => "string",
+    "expiry-time" => "string",
     from => "string",
-    permitopen => "string",
     permitlisten => "string",
-    tunnel => "string",
+    permitopen => "string",
     principals => "string",
-    "port-forwarding" => "",
+    tunnel => "string",
+
+    # Empty value means that option is a flag (no arguments).
+    "cert-authority" => "",
+    "verify-required" => "",
+    restrict => "",
+
+    # All "no-FLAG" options mean "FLAG" is also possible:
+    "no-touch-required" => "",
+    "no-user-rc" => "",
+    "no-touch-required" => "",
     "no-port-forwarding" => "",
-    "agent-forwarding" => "",
     "no-agent-forwarding" => "",
-    "X11-forwarding" => "",
     "no-X11-forwarding" => "",
-    "pty" => "",
     "no-pty" => "",
 };
 
@@ -99,17 +107,18 @@ sub validate_pubkey {
     my $self = shift;
     my $args = shift;
     my $file = $args->{file} ||= "$args->{homedir}/.ssh/authorized_keys";
-    $self->trace("validate_pubkey:[file=$file]SCANFOR[$args->{keytype} $args->{pubkey}]");
+    my $key = "$args->{keytype} $args->{pubkey}";
+    $self->trace("validate_pubkey:[file=$file]SCANFOR[$key]");
     if (open my $fh, "<", $file) {
         while (<$fh>) {
             next if /^\s*\#/;
-            if (/^(.*?)\b\Q$args->{keytype} $args->{pubkey}\E(\s.*)/) {
+            if (/^(.*?)\b\Q$key\E(\s.*)/) {
                 my $prefix = $1;
                 my $options = {};
                 while ($prefix =~ s/^([^=]+)=?(?:|"([^\"]*)"|([^\",]*))(?: |,)//) {
                     my $opt = $1;
                     my $val = defined $2 ? $2 : defined $3 ? $3 : "";
-                    next unless exists $valid_ssh_options->{$opt};
+                    next unless exists $valid_ssh_options->{$opt} or $valid_ssh_options->{"no-$opt"};
                     $options->{$opt} ||= [];
                     push @{ $options->{$opt} }, $val if $valid_ssh_options->{$opt} and length $val;
                 }
@@ -162,7 +171,7 @@ sub run_authorizedkeyscommand {
     my $valid_options = [];
     foreach my $opt (@$options) {
         if ($opt =~ /^([\w\-]+)/) {
-            push @$valid_options, $opt if exists $valid_ssh_options->{$1};
+            push @$valid_options, $opt if exists $valid_ssh_options->{$1} or exists $valid_ssh_options->{"no-$1"};
         }
     }
     my $line = "$keytype $pubkey\n";
