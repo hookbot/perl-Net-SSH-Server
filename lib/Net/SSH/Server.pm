@@ -80,54 +80,44 @@ sub run_shell {
     return 0;
 }
 
+# validate_pubkey
+# Input: {
+#   user    => $user,
+#   homedir => $homedir,
+#   file    => $authorized_keys_file_name, # (optional)
+#   keytype => $keytype,
+#   pubkey  => $pubkey,
+#   fingerprint => $fingerprint,
+# };
+# Success Output: {
+#   command => $command,
+#   environment => ["NAM1=VAL1","NAM2=VAL2"],
+#   "no-pty" => [],
+# };
+# Or die with PAM_* error on failure.
 sub validate_pubkey {
     my $self = shift;
     my $args = shift;
-    my $file = "$args->{homedir}/.ssh/authorized_keys";
+    my $file = $args->{file} ||= "$args->{homedir}/.ssh/authorized_keys";
     $self->trace("validate_pubkey:[file=$file]SCANFOR[$args->{keytype} $args->{pubkey}]");
     if (open my $fh, "<", $file) {
-        my $line = 0;
         while (<$fh>) {
-            $line++;
-            chomp;
-            if (/^\s*\#/) {
-                $self->trace("validate_pubkey:#$line:IgnoreComment");
-                next;
-            }
-            $self->trace("validate_pubkey:#$line:Scanning/(.*?)\\b\\Q$args->{keytype}\\E\\s+\\Q$args->{pubkey}\\E\\b/");
-            #if (/^(.*?)\b\Q$args->{keytype}\E\s+\Q$args->{pubkey}\E\b/) {
-            if (/^(.*?)\b$args->{keytype}\b/) {
-                $self->trace("validate_pubkey:#$line:Matched!1");
-            }
-            if (/^(.*?)\b\Q$args->{keytype}\E/) {
-                $self->trace("validate_pubkey:#$line:Matched!2");
-            }
-            if (/^(.*?)\b$args->{keytype} $args->{pubkey}\b/) {
-                $self->trace("validate_pubkey:#$line:Matched!3");
-            }
-            if (/^(.*?)\b\Q$args->{keytype} \E$args->{pubkey}\b/) {
-                $self->trace("validate_pubkey:#$line:Matched!4");
-            }
-            if (/^(.*?)\b\Q$args->{keytype} $args->{pubkey}\E/) {
-                $self->trace("validate_pubkey:#$line:Matched!5");
-            }
-            if (/^(.*?)\b\Q$args->{keytype} $args->{pubkey}\E\s/) {
-                $self->trace("validate_pubkey:#$line:MATCH[$1]");
+            next if /^\s*\#/;
+            if (/^(.*?)\b\Q$args->{keytype} $args->{pubkey}\E(\s.*)/) {
                 my $prefix = $1;
                 my $options = {};
                 while ($prefix =~ s/^([^=]+)=?(?:|"([^\"]*)"|([^\",]*))(?: |,)//) {
                     my $opt = $1;
                     my $val = defined $2 ? $2 : defined $3 ? $3 : "";
+                    next unless exists $valid_ssh_options->{$opt};
                     $options->{$opt} ||= [];
-                    push @{ $options->{$opt} }, $val if length $val;
+                    push @{ $options->{$opt} }, $val if $valid_ssh_options->{$opt} and length $val;
                 }
                 return $options;
             }
-            $self->trace("validate_pubkey:#$line:MisMatched:$_");
         }
         close $fh;
     }
-    $self->trace("validate_pubkey:NOMATCH");
     die 6; # PAM_PERM_DENIED  /* Permission denied */
 }
 
@@ -145,13 +135,10 @@ sub run_authorizedkeyscommand {
     if (eval { $options = $self->validate_pubkey($args); 1; }) {
         $options ||= [];
         $options = [] if !ref $options;
-use Data::Dumper;
-warn localtime().": pubkey success: ".Dumper $options;
         if ("HASH" eq ref $options) {
             my $options_list = [];
             foreach my $o (sort keys %$options) {
                 my $opt = $o;
-warn localtime().": Handling opt [$opt] PRE: ".Dumper $options_list;
                 my $val = $options->{$o};
                 if (defined $val and !ref $val and length $val) {
                     $val = [ $val ];
@@ -169,7 +156,6 @@ warn localtime().": Handling opt [$opt] PRE: ".Dumper $options_list;
                 }
             }
             $options = $options_list;
-warn localtime().": Final options: ".Dumper $options;
         }
     }
     return 0 if !$options or "ARRAY" ne ref $options;
