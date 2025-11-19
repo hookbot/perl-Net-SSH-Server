@@ -7,6 +7,24 @@ our $VERSION = '0.021';
 use FindBin qw($Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
 
+our $valid_ssh_options = {
+    command => "string",
+    environment => "string",
+    from => "string",
+    permitopen => "string",
+    permitlisten => "string",
+    tunnel => "string",
+    principals => "string",
+    "port-forwarding" => "",
+    "no-port-forwarding" => "",
+    "agent-forwarding" => "",
+    "no-agent-forwarding" => "",
+    "X11-forwarding" => "",
+    "no-X11-forwarding" => "",
+    "pty" => "",
+    "no-pty" => "",
+};
+
 # Method: new
 # Purpose: Initializer
 sub new {
@@ -30,9 +48,13 @@ sub run {
     if ($< and $ENV{SHELL}) {
         exit $self->run_shell;
     }
+    # Detect AuthorizedKeysCommand
+    if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^action=verifypubkey$/) {
+        $ENV{PAM_ID} = $self->{pam_id} = getppid();
+        exit $self->run_authorizedkeyscommand;
+    }
     # Detect pam_exec case
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
-        eval { $self->generate_pam_config } if !-f $self->pam_file;
         $ENV{PAM_ID} = $self->{pam_id} = getppid();
         $self->{pam_env_needed} = !$ENV{SESSION_FILE};
         exit $self->run_pam_exec;
@@ -45,6 +67,7 @@ sub run {
     # Now we know it's the perfect non-detach mode to allow easy monitoring
     $ENV{NET_SSH_EXEC_PID} = $$;
     $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
+    eval { $self->generate_pam_config } if !-f $self->pam_file;
     exit $self->run_sshd;
 }
 
@@ -54,6 +77,113 @@ sub run_shell {
     print "Ran as user: [@pw]\n";
     print "Spawn shell: [@{ $self->{run} }]\n";
     print "ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
+    return 0;
+}
+
+sub validate_pubkey {
+    my $self = shift;
+    my $args = shift;
+    my $file = "$args->{homedir}/.ssh/authorized_keys";
+    $self->trace("validate_pubkey:[file=$file]SCANFOR[$args->{keytype} $args->{pubkey}]");
+    if (open my $fh, "<", $file) {
+        my $line = 0;
+        while (<$fh>) {
+            $line++;
+            chomp;
+            if (/^\s*\#/) {
+                $self->trace("validate_pubkey:#$line:IgnoreComment");
+                next;
+            }
+            $self->trace("validate_pubkey:#$line:Scanning/(.*?)\\b\\Q$args->{keytype}\\E\\s+\\Q$args->{pubkey}\\E\\b/");
+            #if (/^(.*?)\b\Q$args->{keytype}\E\s+\Q$args->{pubkey}\E\b/) {
+            if (/^(.*?)\b$args->{keytype}\b/) {
+                $self->trace("validate_pubkey:#$line:Matched!1");
+            }
+            if (/^(.*?)\b\Q$args->{keytype}\E/) {
+                $self->trace("validate_pubkey:#$line:Matched!2");
+            }
+            if (/^(.*?)\b$args->{keytype} $args->{pubkey}\b/) {
+                $self->trace("validate_pubkey:#$line:Matched!3");
+            }
+            if (/^(.*?)\b\Q$args->{keytype} \E$args->{pubkey}\b/) {
+                $self->trace("validate_pubkey:#$line:Matched!4");
+            }
+            if (/^(.*?)\b\Q$args->{keytype} $args->{pubkey}\E/) {
+                $self->trace("validate_pubkey:#$line:Matched!5");
+            }
+            if (/^(.*?)\b\Q$args->{keytype} $args->{pubkey}\E\s/) {
+                $self->trace("validate_pubkey:#$line:MATCH[$1]");
+                my $prefix = $1;
+                my $options = {};
+                while ($prefix =~ s/^([^=]+)=?(?:|"([^\"]*)"|([^\",]*))(?: |,)//) {
+                    my $opt = $1;
+                    my $val = defined $2 ? $2 : defined $3 ? $3 : "";
+                    $options->{$opt} ||= [];
+                    push @{ $options->{$opt} }, $val if length $val;
+                }
+                return $options;
+            }
+            $self->trace("validate_pubkey:#$line:MisMatched:$_");
+        }
+        close $fh;
+    }
+    $self->trace("validate_pubkey:NOMATCH");
+    die 6; # PAM_PERM_DENIED  /* Permission denied */
+}
+
+sub run_authorizedkeyscommand {
+    my $self = shift;
+    my (undef, $user, $homedir, $keytype, $pubkey, $fingerprint) = $self->cmdline;
+    my $args = {
+        user    => $user,
+        homedir => $homedir,
+        keytype => $keytype,
+        pubkey  => $pubkey,
+        fingerprint => $fingerprint,
+    };
+    my $options = undef;
+    if (eval { $options = $self->validate_pubkey($args); 1; }) {
+        $options ||= [];
+        $options = [] if !ref $options;
+use Data::Dumper;
+warn localtime().": pubkey success: ".Dumper $options;
+        if ("HASH" eq ref $options) {
+            my $options_list = [];
+            foreach my $o (sort keys %$options) {
+                my $opt = $o;
+warn localtime().": Handling opt [$opt] PRE: ".Dumper $options_list;
+                my $val = $options->{$o};
+                if (defined $val and !ref $val and length $val) {
+                    $val = [ $val ];
+                }
+                $val = undef if "ARRAY" ne ref $val or !@$val;
+                if ($val and @$val) {
+                    foreach my $v (@$val) {
+                        my $escaped = $v;
+                        $escaped =~ s/\"/\\"/g;
+                        push @$options_list, qq{$opt="$escaped"};
+                    }
+                }
+                else {
+                    push @$options_list, $opt;
+                }
+            }
+            $options = $options_list;
+warn localtime().": Final options: ".Dumper $options;
+        }
+    }
+    return 0 if !$options or "ARRAY" ne ref $options;
+    my $valid_options = [];
+    foreach my $opt (@$options) {
+        if ($opt =~ /^([\w\-]+)/) {
+            push @$valid_options, $opt if exists $valid_ssh_options->{$1};
+        }
+    }
+    my $line = "$keytype $pubkey\n";
+    if (@$valid_options) {
+        $line = join(",", @$valid_options)." ".$line;
+    }
+    print $line;
     return 0;
 }
 
