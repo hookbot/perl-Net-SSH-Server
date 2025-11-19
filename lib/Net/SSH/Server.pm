@@ -7,6 +7,9 @@ our $VERSION = '0.021';
 use FindBin qw($Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
 
+# Copy a shallow copy of %ENV
+our %ORIG_ENV = %ENV;
+
 our $valid_ssh_options = {
     # All possible authorized_keys options, according to "man sshd":
     command => "string",
@@ -221,60 +224,7 @@ sub session_file {
     my $self = shift;
     my $id = $self->{pam_id} ||= $ENV{PAM_ID};
     my $service = $self->pam_service;
-    return $self->{session_file} ||= "/var/run/sshd/session-$service-$id.env";
-}
-
-sub pam_getenv {
-    my $self = shift;
-    my $name = shift // "";
-    if (sysopen my $fh, $self->session_file, O_RDONLY, 0600) {
-        my $contents = join "", <$fh>;
-        close $fh;
-        while ($contents =~ s/^(\w+)(=?)(.*)\n//) {
-            my $n = $1;
-            if (!$2) {
-                delete $ENV{$n};
-                next;
-            }
-            my $v = $3;
-            $v =~ s/\\n/\n/g;
-            $ENV{$n} = $v;
-        }
-    }
-    return $ENV{$name};
-}
-
-sub pam_putenv {
-    my $self = shift;
-    my $name = shift;
-    my $value = shift;
-    my $old_value = $self->pam_getenv($name);
-    return if !defined($value) && !defined($old_value) or defined($value) && defined($old_value) && $value eq $old_value;
-    if (defined $value) {
-        $ENV{$name} = $value;
-    }
-    else {
-        delete $ENV{$name};
-    }
-    $self->{pam_env_needed} = 1;
-    my $file = $self->session_file;
-    my $prev = {};
-    sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
-    my $contents = join "", <$fh>;
-    $value =~ s/\n/\\n/g if defined $value;
-    while ($contents =~ s/^(\w+)(=?)(.*)\n//) {
-        $prev->{$1} = $2 ? $3 : undef;
-    }
-    $prev->{$name} = $value;
-    $contents = "";
-    foreach my $n (sort keys %$prev) {
-        $contents .= $n . (defined($prev->{$n}) ? "=$prev->{$n}" : "") . "\n";
-    }
-    seek $fh, 0, 0; # SEEK_SET
-    print $fh $contents;
-    truncate($fh, tell $fh);
-    close $fh;
-    return $self;
+    return $ENV{SESSION_FILE} ||= "/var/run/sshd/session-$service-$id.env";
 }
 
 sub run_pam_exec {
@@ -288,9 +238,8 @@ sub run_pam_exec {
     $code ||= sub {2}; # PAM_SYMBOL_ERR  /* Symbol not found */
     $self->loadstash;
     $self->trace("run_pam_exec:[loadstash=".($self->session_file)."]");
-    if (my $file = $ENV{BANNER_FILE}) {
+    if (my $file = delete $ENV{BANNER_FILE}) {
         unlink $file;
-        $self->pam_putenv( BANNER_FILE => undef );
     }
     return [$code->($self), $self->trace("run_pam_exec:savestash"), $self->savestash]->[0];
 }
@@ -369,10 +318,10 @@ sub init_connection {
     my $banner_code = $self->can("banner");
     if ($banner_code and my $banner_text = eval { $banner_code->($self) }) {
         my $banner_file = $self->banner_file;
-        $self->pam_putenv( BANNER_FILE => $banner_file );
         if (open my $fh, ">", $banner_file) {
             print $fh $banner_text;
             close $fh;
+            $ENV{BANNER_FILE} = $banner_file;
             $self->cmdline("-o", "Banner $banner_file");
         }
     }
@@ -441,7 +390,7 @@ sub auth_check {
     my $self = shift;
     $self->trace("auth_check:top");
     my $pw = <STDIN> // "";
-    $self->pam_putenv( PAM_PW => $pw );
+    $ENV{PAM_PW} = $pw; # Store most recent password into PAM_PW
     push @{ $self->stash->{auth} ||= [] }, { password => $pw };
     $self->trace("auth_check:end");
     return $self->validate_pw;
@@ -486,6 +435,7 @@ sub account_acquire_session_lock {
     my $lock_file = $self->pam_args->{lockfile} or !warn "auth_acquire_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
     my $env_file  = $self->pam_args->{envfile}  or !warn "auth_acquire_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
     my $expire = 10 + time;
+    $self->savestash;
     my $save_env = "";
     if (open my $fh, "<", $self->session_file) {
         $save_env = join "", <$fh>;
@@ -516,7 +466,6 @@ sub account_acquire_session_lock {
         print $fh $save_env;
         close $fh;
     }
-    $self->savestash;
     return 0; # PAM_SUCCESS
 }
 
@@ -555,10 +504,8 @@ sub open_session_release_session_lock {
     return 0 if $self->{pam_env_needed};
     my $lock_file = $self->pam_args->{lockfile} or !warn "account_release_session_lock lockfile missing\n" or return 14; # PAM_SESSION_ERR
     my $env_file  = $self->pam_args->{envfile}  or !warn "account_release_session_lock envfile missing\n"  or return 14; # PAM_SESSION_ERR
-    my $session_file = $self->session_file      or !warn "account_release_session_lock session missing\n"  or return 14; # PAM_SESSION_ERR
     unlink $env_file;
     unlink $lock_file;
-    unlink $session_file;
     return 0; # PAM_SUCCESS
 }
 
@@ -587,34 +534,92 @@ sub json {
     return $self->{json} ||= eval { require JSON; JSON->new->utf8->allow_unknown->allow_nonref->convert_blessed->canonical } || die "Could not load JSON: $@";
 }
 
-sub savestash {
-    my $self = shift;
-    $self->trace("savestash:top");
-    if ($self->{pam_env_needed}) {
-        $self->pam_putenv( STASH_JSON => $self->json->encode($self->stash) );
-        $self->pam_putenv( SESSION_FILE => $self->session_file );
-    }
-    $self->trace("savestash:end");
-    return $self->stash;
-}
-
 sub loadstash {
     my $self = shift;
-    my $json = $self->pam_getenv( "STASH_JSON" ) or return;
+    my $json = $ENV{STASH_JSON} = $self->loadenv( "STASH_JSON" ) or return $self->stash;
     $json = $self->json->decode($json);
-    my $monkey_stash = 0;
     foreach my $k (keys %$json) {
         my $v = $self->stash->{$k};
         if ($v and "ARRAY" eq ref $v) {
             push @$v, $json->{$k};
-            $monkey_stash++;
         }
         else {
             $self->stash->{$k} = $json->{$k};
         }
     }
-    $self->savestash if $monkey_stash;
     return $self->stash;
+}
+
+sub savestash {
+    my $self = shift;
+    $self->trace("savestash:top");
+    $ENV{STASH_JSON} = $self->json->encode($self->stash);
+    $self->saveenv;
+    $self->trace("savestash:end");
+    return $self->stash;
+}
+
+# Load previous ENV settings
+sub loadenv {
+    my $self = shift;
+    my $name = shift || "";
+    my $file = $ENV{SESSION_FILE} ||= $self->session_file;
+    if (sysopen my $fh, $self->session_file, O_RDONLY, 0600) {
+        my $contents = join "", <$fh>;
+        close $fh;
+        while ($contents =~ s/^(\w+)(=?)(.*)\n//) {
+            my $n = $1;
+            if (!$2) {
+                delete $ENV{$n};
+                next;
+            }
+            my $v = $3;
+            $v =~ s/\\n/\n/g;
+            $ENV{$n} = $v;
+        }
+    }
+    return $ENV{$name};
+}
+
+# Store any changes to %ENV to be able to restore {stash} or other ENV settings later
+sub saveenv {
+    my $self = shift;
+    my $changes = {};
+    $ENV{SESSION_FILE} = $self->session_file;
+    foreach my $old (keys %ORIG_ENV) {
+        if (defined $ORIG_ENV{$old}) {
+            if (defined $ENV{$old}) {
+                $changes->{$old} = $ENV{$old} if $ORIG_ENV{$old} ne $ENV{$old};
+            }
+            else {
+                $changes->{$old} = undef;
+            }
+        }
+        else {
+            $changes->{$old} = $ENV{$old};
+        }
+    }
+    foreach my $new (keys %ENV) {
+        next if exists $ORIG_ENV{$new};
+        $changes->{$new} = $ENV{$new};
+    }
+    my $file = $self->session_file;
+    if (!keys %$changes) {
+        unlink $file;
+        return;
+    }
+    sysopen my $fh, $file, O_CREAT | O_RDWR, 0600 or die "$file: open failure! $!\n";
+    my $contents = "";
+    foreach my $n (sort keys %$changes) {
+        my $val = $changes->{$n};
+        $val =~ s/\n/\\n/g if defined $val;
+        $contents .= $n . (defined($val) ? "=$val" : "") . "\n";
+    }
+    seek $fh, 0, 0; # SEEK_SET
+    print $fh $contents;
+    truncate($fh, tell $fh);
+    close $fh;
+    return;
 }
 
 sub trace {
