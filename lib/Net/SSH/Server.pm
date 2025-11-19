@@ -350,7 +350,9 @@ sub run_sshd {
     if (my $sockaddr = getpeername STDIN) {
         # Probably -R mode or xinetd-style connection.
         $ENV{PAM_ID} = $self->{pam_id} = $$;
+        $self->loadstash;
         $self->init_connection;
+        $self->savestash;
     }
     $self->trace("run_sshd:EndOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
     exec { $target } @{ $self->{run} } or die "$0: spawn failure: $!\n";
@@ -526,6 +528,20 @@ sub open_session_printout {
     if (my $output = $self->stash->{session_output}) {
         print STDERR $output;
     }
+    return 0; # PAM_SUCCESS
+}
+
+sub close_session_cleanup {
+    my $self = shift;
+    $self->trace("close_session_cleanup");
+    unlink $self->session_file if -e $self->session_file;
+    unlink $self->banner_file  if -e $self->banner_file;
+    return 0; # PAM_SUCCESS
+}
+
+sub close_session_sniff {
+    my $self = shift;
+    $self->trace("close_session_sniff");
     return 0; # PAM_SUCCESS
 }
 
