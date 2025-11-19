@@ -55,19 +55,23 @@ https://website.com/settings.html
 };
 }
 
+# validate_pw
 # When "PasswordAuthentication yes" is enabled, then check passwd provided.
 # Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
 sub validate_pw {
     my $self = shift;
-    #my $user = $ENV{PAM_USER}  or return 7; # PAM_AUTH_ERR  /* Authentication failure */
+    my $user = $ENV{PAM_USER}  or return 7; # PAM_AUTH_ERR  /* Authentication failure */
     my $pass = $ENV{PAM_PW} // "";
     $self->stamp("validate_pw:MySSHDaemon");
+    if (getpwnam $user) {
+        # Real user, so use the default validator
+        return $self->SUPER::validate_pw;
+    }
     # SUCCESS if any non-empty password is provided
-    return length $ENV{PAM_PW} ?
-        0 : # PAM_SUCCESS   /* Successful function return */
-        7 ; # PAM_AUTH_ERR  /* Authentication failure */
+    return $self->validate_nonempty;
 }
 
+# validate_user
 # Input: $user
 # Return: $uid if valid
 # DIE with PAM_* error code if $user is not valid user.
@@ -81,9 +85,6 @@ sub validate_user {
     my $uid = getpwnam "sshproxy"; # $self->stash->{failover_user}
     return $uid if defined $uid and length $uid;
     die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
-    #$self->pam_putenv( SSH_USER => $user );
-    #$self->pam_putenv( USER => $user ); ### Totally doesn't work because bash bricks over $USER immediately
-    #return 0;                               # PAM_SUCCESS            /* Successful function return */
 }
 
 1;
