@@ -32,7 +32,7 @@ our $valid_ssh_options = {
     "no-touch-required" => "",
     "no-port-forwarding" => "",
     "no-agent-forwarding" => "",
-    "no-X11-forwarding" => "",
+    "no-x11-forwarding" => "",
     "no-pty" => "",
 
     # Fake option to provide pubkey comment
@@ -130,9 +130,9 @@ sub validate_pubkey {
                 while ($prefix =~ s/^([^=]+)=?(?:|"([^\"]*)"|([^\"\ ,]*))[\ ,]//) {
                     my $opt = $1;
                     my $val = defined $2 ? $2 : defined $3 ? $3 : "";
-                    next unless exists $valid_ssh_options->{$opt} or $valid_ssh_options->{"no-$opt"};
+                    next unless exists $valid_ssh_options->{lc $opt} or $valid_ssh_options->{lc "no-$opt"};
                     $options->{$opt} ||= [];
-                    push @{ $options->{$opt} }, $val if $valid_ssh_options->{$opt} and length $val;
+                    push @{ $options->{$opt} }, $val if $valid_ssh_options->{lc $opt} and length $val;
                 }
                 return $options;
             }
@@ -190,7 +190,7 @@ sub run_authorizedkeyscommand {
             $comment = $1 if $comment =~ /"(.*)"/;
         }
         elsif ($opt =~ /^([\w\-]+)/) {
-            push @$valid_options, $opt if exists $valid_ssh_options->{$1} or exists $valid_ssh_options->{"no-$1"};
+            push @$valid_options, $opt if exists $valid_ssh_options->{lc $1} or exists $valid_ssh_options->{lc "no-$1"};
         }
     }
     my $line = "$keytype $pubkey";
