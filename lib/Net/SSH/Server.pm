@@ -7,6 +7,52 @@ our $VERSION = '0.021';
 use FindBin qw($Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
 
+=pod
+
+=head1 NAME
+
+Net::SSH::Server - SSH Server with support for Perl hooks and features
+
+=head1 SYNOPSYS
+
+  #!/usr/bin/env perl
+  # Example daemon launcher script
+  # Usage: /usr/sbin/my-custom-ssh-server
+  use strict;
+  use warnings;
+  use Net::SSH::Server;
+  Net::SSH::Server->new
+    ->run;
+
+=head1 DESCRIPTION
+
+Although this module allows to register some Perl hooks for
+certain features, it is not a replacement for sshd.
+The real sshd is just run using the appropriate options in order
+to apply the features registered and actually handles accepting
+connections and performing the session encryption, etc.
+
+=head1 REGISTER
+
+Register a feature with a given setting.
+
+  register( $feature => $value )
+
+=head1 SEE ALSO
+
+  sshd(8)
+  Net::SSH
+
+=head1 AUTHOR
+
+  Rob Brown <bbb@cpan.org>
+
+  Copyright 2025
+
+  Perl Artistic License
+
+=cut
+
 # Copy a shallow copy of %ENV
 our %ORIG_ENV = %ENV;
 
@@ -48,6 +94,16 @@ sub new {
     $self->{run} = [ $0, @ARGV ];
     $self->init;
     return bless $self, $class;
+}
+
+sub register {
+    my $self = shift;
+    my $feature = shift or die "register: feature title required!\n";;
+    if (@_) {
+        unshift @{ $self->{r}->{$feature} ||= [] }, @_;
+        return $self;
+    }
+    return $self->{r}->{$feature} || [];
 }
 
 # Method: init
@@ -645,54 +701,3 @@ sub trace {
 }
 
 1;
-__END__
-# Below is stub documentation for your module. You'd better edit it!
-
-=head1 NAME
-
-Net::SSH::Server - Perl extension for blah blah blah
-
-=head1 SYNOPSIS
-
-  use Net::SSH::Server;
-  blah blah blah
-
-=head1 DESCRIPTION
-
-Stub documentation for Net::SSH::Server, created by h2xs. It looks like the
-author of the extension was negligent enough to leave the stub
-unedited.
-
-Blah blah blah.
-
-=head2 EXPORT
-
-None by default.
-
-
-
-=head1 SEE ALSO
-
-Mention other useful documentation such as the documentation of
-related modules or operating system documentation (such as man pages
-in UNIX), or any relevant external documentation such as RFCs or
-standards.
-
-If you have a mailing list set up for your module, mention it here.
-
-If you have a web site set up for your module, mention it here.
-
-=head1 AUTHOR
-
-Rob Brown, E<lt>bbb@cpan.orgE<gt>
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (C) 2025 by Rob Brown
-
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself, either Perl version 5.34.1 or,
-at your option, any later version of Perl 5 you may have available.
-
-
-=cut

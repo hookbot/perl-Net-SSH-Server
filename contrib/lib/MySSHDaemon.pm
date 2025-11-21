@@ -26,7 +26,8 @@ sub trace {
 
 sub init {
     my $self = shift;
-    $self->stamp("init");
+    $self->trace("init");
+    return $self->SUPER::init();
 }
 
 sub run_sshd {
@@ -37,7 +38,7 @@ sub run_sshd {
     #$self->stash->{banner_method} = "banner";
     #$self->stash->{banner_txt} = "WELCOME TO SSH SERVER!\n";
     $self->stash->{failover_user} = "sshproxy";
-    $self->stamp("run_sshd");
+    $self->trace("MySSHDaemon:run_sshd");
     return $self->SUPER::run_sshd();
 }
 
