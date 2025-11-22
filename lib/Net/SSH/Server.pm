@@ -41,17 +41,33 @@ Register a feature with a given setting.
 
 =head2 override_config_file
 
-Use provided config file instead of the default ( /etc/ssh/sshd_config )
+Use specified config file.
+
+Example:
+
+  $self->register( override_config_file => "/etc/ssh/sshd-custom_config" );
+
+Default "/etc/ssh/sshd_config"
 
 =head2 override_config_directory
 
 All *.conf files found within provided directory will
 override any settings found in the config file.
 
+Example:
+
+  $self->register( override_config_directory => "/etc/ssh/sshd-custom_config.d/." );
+
+No default (unless Include'd within the config_file).
+
 =head2 failover_user
 
 Specify a username to fallback to if the username attempted
 to login with is not a real user.
+
+  $self->register( failover_user => "git" );
+
+Default is to FAIL for any non-existing user.
 
 =head1 SEE ALSO
 
