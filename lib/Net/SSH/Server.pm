@@ -60,6 +60,17 @@ Example:
 
 No default (unless Include'd within the config_file).
 
+=head2 target
+
+Specify the OpenSSH Server program to use as the
+target engine to run the daemon.
+
+Example:
+
+  $self->register( target => "/usr/sbin/OpenSSHd" );
+
+Default "sshd"
+
 =head2 banner
 
 CODEREF that returns a string used as the pre-banner.
@@ -482,7 +493,19 @@ sub banner_file {
 }
 
 sub target {
-    return shift()->stash->{target} ||= eval { require File::Which; File::Which::which("sshd") } || "/usr/sbin/sshd";
+    my $self = shift;
+    return $self->{target} if $self->{target} and -x $self->{target};
+    my $targets = $self->register( "target" );
+    push @$targets, "sshd" unless @$targets;
+    foreach my $t (@$targets) {
+        if (-x $t) {
+            return $self->{target} = $t;
+        }
+        if (my $search = eval { require File::Which; File::Which::which($t) }) {
+            return $self->{target} = $search;
+        }
+    }
+    return $targets->[0];
 }
 
 sub stash {
