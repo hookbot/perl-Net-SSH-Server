@@ -48,6 +48,11 @@ Use provided config file instead of the default ( /etc/ssh/sshd_config )
 All *.conf files found within provided directory will
 override any settings found in the config file.
 
+=head2 failover_user
+
+Specify a username to fallback to if the username attempted
+to login with is not a real user.
+
 =head1 SEE ALSO
 
   sshd(8)
@@ -359,7 +364,7 @@ sub init_connection {
         $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
         $ENV{SSH_CONNECTION} .= " $port";
     }
-    my $failover_user = exists $self->stash->{failover_user} ? $self->stash->{failover_user} : do {
+    my $failover_user = $self->register( "failover_user" )->[0] || do {
         # No explicit failover_user? Try auto-detecting with random bogus fake user:
         my @pw;
         my $test = "a";
@@ -371,12 +376,11 @@ sub init_connection {
             my $uid = -1;
             my $pam_error = 0; # PAM_SUCCESS
             eval {
-                #local $SIG{__DIE__} = sub { $pam_error = $_[0] };
-                $uid = $self->validate_user;
+                $uid = $self->validate_user($test);
             };
             $pam_error = $@ =~ /^(\d+)/ ? $1 : 0;
             $self->trace("init_connection:[test_user=$test][uid=$uid][pam_error=$pam_error]");
-            ($name) = getpwuid $uid if defined $uid;
+            ($name) = getpwuid $uid if defined $uid and $uid >= 0;
         }
         $name;
     };
