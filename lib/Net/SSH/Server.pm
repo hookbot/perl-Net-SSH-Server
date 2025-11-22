@@ -60,6 +60,27 @@ Example:
 
 No default (unless Include'd within the config_file).
 
+=head2 banner
+
+CODEREF that returns a string used as the pre-banner.
+This banner message will be shown to the SSH client
+immediately after connecting but prior to any
+authentication, regardless of the username or whether
+a TTY is requested or not or even whether the login
+is successful or not.  The username is still unknown
+this early, but the SSH_CONNECTION environment
+variable will be populated at this point.
+
+Example:
+
+  $self->register( banner => sub {
+    my $self = shift;
+    my ($ip) = split / /, $ENV{SSH_CONNECTION};
+    return "*** Welcome to Perl SSHD from $ip ****\n";
+  } );
+
+Default is the empty string, meaning no banner at all.
+
 =head2 failover_user
 
 Specify a username to fallback to if the username attempted
@@ -381,7 +402,7 @@ sub init_connection {
         $ENV{SSH_CONNECTION} .= " $port";
     }
     my $failover_user = $self->register( "failover_user" )->[0] || do {
-        # No explicit failover_user? Try auto-detecting with random bogus fake user:
+        # No explicit failover_user? Try auto-detecting by sending a random bogus fake user to validate_user:
         my @pw;
         my $test = "a";
         my $tries = 100;
@@ -405,8 +426,13 @@ sub init_connection {
         $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
         $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
     }
-    my $banner_code = $self->can("banner");
-    if ($banner_code and my $banner_text = eval { $banner_code->($self) }) {
+    my $banner_text = "";
+    foreach my $banner_code (@{ $self->register( "banner" ) }) {
+        if (my $banner_out = eval { $banner_code->($self) }) {
+            $banner_text .= $banner_out;
+        }
+    }
+    if ($banner_text) {
         my $banner_file = $self->banner_file;
         if (open my $fh, ">", $banner_file) {
             print $fh $banner_text;

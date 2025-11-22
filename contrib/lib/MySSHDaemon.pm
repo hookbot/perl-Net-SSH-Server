@@ -29,6 +29,7 @@ sub init {
     $self->trace("init");
     $self->register( override_config_file => "/etc/ssh/sshdproxy_config" );
     $self->register( override_config_directory => "/etc/ssh/sshdproxy_config.d" );
+    $self->register( banner => \&banner );
     $self->register( failover_user => "sshproxy" );
     return $self->SUPER::init();
 }
@@ -78,13 +79,13 @@ sub validate_pw {
 # DIE with PAM_* error code if $user is not valid user.
 sub validate_user {
     my $self = shift;
-    my $user = shift        or die 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
+    my $user = shift         or die 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
     my @ent = getpwnam $user;
     $self->trace("MySSHDaemon::validate_user:USER=[$user]:FOUND[@ent]");
     my $uid = @ent > 3 && $ent[2];
     return $uid if defined $uid and length $uid;
     # Allow any user that smells okay:
-    $user =~ /^[\w\-\@]+$/  or die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    $user =~ /^[\w\-\.\@]+$/ or die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
     $uid = getpwnam $self->register("failover_user")->[0];
     return $uid if defined $uid and length $uid;
     die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
