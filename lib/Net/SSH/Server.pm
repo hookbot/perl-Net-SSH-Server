@@ -235,7 +235,7 @@ sub validate_pubkey {
     my $file = $args->{file} ||= "$args->{homedir}/.ssh/authorized_keys";
     my $key = "$args->{keytype} $args->{pubkey}";
     my $auth_history = $self->stash->{auth} ||= [];
-    push @$auth_history, { pubkey => $key } if !grep { ($_->{pubkey} // "") eq $key} @$auth_history;
+    push @$auth_history, { publickey => $key } if !grep { ($_->{publickey} // "") eq $key} @$auth_history;
     $self->trace("validate_pubkey:[file=$file]SCANFOR[$key]");
     if (open my $fh, "<", $file) {
         while (<$fh>) {
