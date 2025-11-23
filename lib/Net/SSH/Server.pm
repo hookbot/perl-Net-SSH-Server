@@ -412,27 +412,7 @@ sub init_connection {
         $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
         $ENV{SSH_CONNECTION} .= " $port";
     }
-    my $failover_user = $self->register( "failover_user" )->[0] || do {
-        # No explicit failover_user? Try auto-detecting by sending a random bogus fake user to validate_user:
-        my @pw;
-        my $test = "a";
-        my $tries = 100;
-        while ($tries-->0 and @pw = getpwnam ++$test) {}
-        my $name = undef;
-        if (!@pw) {
-            # Found a bogus user $test, so run it through validate_user to see if it passes.
-            my $uid = -1;
-            my $pam_error = 0; # PAM_SUCCESS
-            eval {
-                $uid = $self->validate_user($test);
-            };
-            $pam_error = $@ =~ /^(\d+)/ ? $1 : 0;
-            $self->trace("init_connection:[test_user=$test][uid=$uid][pam_error=$pam_error]");
-            ($name) = getpwuid $uid if defined $uid and $uid >= 0;
-        }
-        $name;
-    };
-    if ($failover_user) {
+    if (my $failover_user = $self->register( "failover_user" )->[0]) {
         $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
         $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
         $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
