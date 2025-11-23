@@ -254,7 +254,8 @@ sub validate_pubkey {
     my $file = $args->{file} ||= "$args->{homedir}/.ssh/authorized_keys";
     my $key = "$args->{keytype} $args->{pubkey}";
     my $auth_history = $self->stash->{auth} ||= [];
-    push @$auth_history, { publickey => $key } if !grep { ($_->{publickey} // "") eq $key} @$auth_history;
+    my $try = { Publickey => $key };
+    push @$auth_history, $try if !grep { ($_->{Publickey} // "") eq $key} @$auth_history;
     $self->trace("validate_pubkey:[file=$file]SCANFOR[$key]");
     if (open my $fh, "<", $file) {
         while (<$fh>) {
@@ -272,12 +273,15 @@ sub validate_pubkey {
                     $options->{$opt} ||= [];
                     push @{ $options->{$opt} }, $val if $valid_ssh_options->{lc $opt} and length $val;
                 }
+                push @{ $try->{error} ||= [] }, 0; # PAM_SUCCESS
                 return $options;
             }
         }
         close $fh;
     }
-    die 6; # PAM_PERM_DENIED  /* Permission denied */
+    my $error = 6; # PAM_PERM_DENIED  /* Permission denied */
+    push @{ $try->{error} ||= [] }, $error; # PAM_SUCCESS
+    die $error;
 }
 
 sub run_authorizedkeyscommand {
