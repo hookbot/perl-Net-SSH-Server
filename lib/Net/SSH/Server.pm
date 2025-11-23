@@ -554,15 +554,6 @@ sub auth_check {
     return $error;
 }
 
-sub validate_nonempty {
-    my $self = shift;
-    my $pw = $ENV{PAM_PW} // "";
-    # Return SUCCESS if any random non-empty password is provided
-    return length $pw ?
-        0 : # PAM_SUCCESS   /* Successful function return */
-        7 ; # PAM_AUTH_ERR  /* Authentication failure */
-}
-
 # When "PasswordAuthentication yes" is enabled, then check passwd provided.
 # Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
 sub unix_password_validation_error {
