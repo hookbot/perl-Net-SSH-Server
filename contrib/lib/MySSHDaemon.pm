@@ -6,13 +6,15 @@ use base qw(Net::SSH::Server);
 sub init {
     my $self = shift;
     $self->trace("MySSHDaemon:init");
-    my $init = $self->SUPER::init();
+    $self->SUPER::init();
     $self->register( trace_debug => \&stamp );
     $self->register( override_config_file => "/etc/ssh/sshdproxy_config" );
     $self->register( override_config_directory => "/etc/ssh/sshdproxy_config.d" );
     $self->register( banner => \&banner );
     $self->register( failover_user => "sshproxy" );
-    return $init;
+    $self->register( password_validation_error => \&password_error );
+    $self->register( skip_unix_password_validation => 1 );
+    return;
 }
 
 sub stamp {
@@ -34,6 +36,7 @@ sub banner {
     my ($remote_addr, $remote_port, $server_addr, $server_port) = split / /, $ENV{SSH_CONNECTION};
     $remote_addr = "[$remote_addr]" if $remote_addr =~ /:/;
     $server_addr = "[$server_addr]" if $server_addr =~ /:/;
+    $self->trace("banner($remote_addr:$remote_port=>$server_addr:$server_port)");
     return qq{
 **** Welcome to the BASTION BOUNCER BOX! ****
 MySSHDaemon custom banner for service $ENV{PAM_SERVICE}
@@ -43,20 +46,22 @@ https://website.com/settings.html
 };
 }
 
-# validate_pw
+# password_error( $username, $password )
 # When "PasswordAuthentication yes" is enabled, then check passwd provided.
 # Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
-sub validate_pw {
+sub password_error {
     my $self = shift;
-    my $user = $ENV{PAM_USER}  or return 7; # PAM_AUTH_ERR  /* Authentication failure */
-    my $pass = $ENV{PAM_PW} // "";
-    $self->trace("validate_pw:MySSHDaemon");
+    my $user = shift or return 7; # PAM_AUTH_ERR  /* Authentication failure */
+    my $pass = shift // "";
+    $self->trace("password_error");
     if (getpwnam $user) {
         # Real user, so use the default validator
-        return $self->SUPER::validate_pw;
+        return $self->unix_password_validation_error($user, $pass);
     }
-    # SUCCESS if any non-empty password is provided
-    return $self->validate_nonempty;
+    # Return SUCCESS if any non-empty password is provided
+    return length $pass ?
+        0 : # PAM_SUCCESS   /* Successful function return */
+        7 ; # PAM_AUTH_ERR  /* Authentication failure */
 }
 
 # validate_user

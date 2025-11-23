@@ -534,9 +534,24 @@ sub auth_check {
     $self->trace("auth_check:top");
     my $pw = <STDIN> // "";
     $ENV{PAM_PW} = $pw; # Store most recent password into PAM_PW
-    push @{ $self->stash->{auth} ||= [] }, { password => $pw };
-    $self->trace("auth_check:end");
-    return $self->validate_pw;
+    my $try = { Password => $pw };
+    push @{ $self->stash->{auth} ||= [] }, $try;
+    my $error = -1;
+    if (!$self->register("skip_unix_password_validation")->[0]) {
+        eval { $error = $self->unix_password_validation_error($ENV{PAM_USER}, $ENV{PAM_PW}); 1; }
+            or $self->trace("auth_check:unix_password_validation_error:CRASH:$@");
+        push @{ $try->{error} ||= [] }, $error;
+        return 0 if !$error; # 0 PAM_SUCCESS
+    }
+    foreach my $code (reverse @{ $self->register( "password_validation_error" ) }) {
+        eval { $error = $code->($self, $ENV{PAM_USER}, $ENV{PAM_PW}); 1; }
+            or $self->trace("auth_check:password_validation_error:CRASH:$@");
+        push @{ $try->{error} ||= [] }, $error;
+        return 0 if !$error; # 0 PAM_SUCCESS
+    }
+    # AUTH FAILED
+    $self->trace("auth_check:end:error=$error");
+    return $error;
 }
 
 sub validate_nonempty {
@@ -550,7 +565,7 @@ sub validate_nonempty {
 
 # When "PasswordAuthentication yes" is enabled, then check passwd provided.
 # Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
-sub validate_pw {
+sub unix_password_validation_error {
     my $self = shift;
     my $user = $ENV{PAM_USER}  or return 8; # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
     my $pass = $ENV{PAM_PW};
