@@ -33,7 +33,7 @@ The real sshd is just run using the appropriate options in order
 to apply the features registered and actually handles accepting
 connections and performing the session encryption, etc.
 
-=head1 REGISTER
+=head1 register
 
 Register a feature with a given setting.
 
@@ -100,6 +100,25 @@ to login with is not a real user.
   $self->register( failover_user => "git" );
 
 Default is to FAIL for any non-existing user.
+
+=head2 trace_debug
+
+Specify option code to run for every ->trace call to help with debugging.
+
+Example:
+
+  $self->register( trace_debug => sub {
+    my $self = shift;
+    my $tag = shift || "unknown_tag-".[caller 0]->[3]."-Line-".[caller 0]->[2];
+    my $ppid = getppid;
+    my $info = $self->json->encode({ e => \%ENV, s => $self->stash });
+    open my $debug, ">>", "/tmp/netsshdebug.log";
+    chmod 0666, "/tmp/netsshdebug.log";
+    print $debug localtime()." [$ppid] [$$] $info\n";
+    close $debug;
+  } );
+
+Default is to do nothing for each ->trace call.
 
 =head1 SEE ALSO
 
@@ -760,7 +779,10 @@ sub saveenv {
 sub trace {
     my $self = shift;
     my $tag = shift || "unknown_trace";
-    # Nothing to do
+    foreach my $code (@{ $self->register( "trace_debug" ) }) {
+        eval { $code->($self, $tag) };
+    }
+    return;
 }
 
 1;

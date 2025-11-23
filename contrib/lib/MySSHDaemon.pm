@@ -3,6 +3,18 @@ package MySSHDaemon;
 use strict;
 use base qw(Net::SSH::Server);
 
+sub init {
+    my $self = shift;
+    $self->trace("MySSHDaemon:init");
+    my $init = $self->SUPER::init();
+    $self->register( trace_debug => \&stamp );
+    $self->register( override_config_file => "/etc/ssh/sshdproxy_config" );
+    $self->register( override_config_directory => "/etc/ssh/sshdproxy_config.d" );
+    $self->register( banner => \&banner );
+    $self->register( failover_user => "sshproxy" );
+    return $init;
+}
+
 sub stamp {
     my $self = shift;
     my $tag = shift || "unknown";
@@ -15,24 +27,6 @@ sub stamp {
     chmod 0666, "/tmp/sshclient.log";
     print $fh "$now [$$] [$ppid] [$tag] [@run] STASH[$stash] ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
     close $fh;
-}
-
-sub trace {
-    my $self = shift;
-    my $tag = shift || "unknown_stamp";
-    $self->stamp($tag);
-    return $self->SUPER::trace();
-}
-
-sub init {
-    my $self = shift;
-    $self->trace("MySSHDaemon:init");
-    my $init = $self->SUPER::init();
-    $self->register( override_config_file => "/etc/ssh/sshdproxy_config" );
-    $self->register( override_config_directory => "/etc/ssh/sshdproxy_config.d" );
-    $self->register( banner => \&banner );
-    $self->register( failover_user => "sshproxy" );
-    return $init;
 }
 
 sub banner {
@@ -56,7 +50,7 @@ sub validate_pw {
     my $self = shift;
     my $user = $ENV{PAM_USER}  or return 7; # PAM_AUTH_ERR  /* Authentication failure */
     my $pass = $ENV{PAM_PW} // "";
-    $self->stamp("validate_pw:MySSHDaemon");
+    $self->trace("validate_pw:MySSHDaemon");
     if (getpwnam $user) {
         # Real user, so use the default validator
         return $self->SUPER::validate_pw;
