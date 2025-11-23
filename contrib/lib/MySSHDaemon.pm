@@ -26,21 +26,13 @@ sub trace {
 
 sub init {
     my $self = shift;
-    $self->trace("init");
+    $self->trace("MySSHDaemon:init");
+    my $init = $self->SUPER::init();
     $self->register( override_config_file => "/etc/ssh/sshdproxy_config" );
     $self->register( override_config_directory => "/etc/ssh/sshdproxy_config.d" );
     $self->register( banner => \&banner );
     $self->register( failover_user => "sshproxy" );
-    return $self->SUPER::init();
-}
-
-sub run_sshd {
-    my $self = shift;
-    #$self->stash->{banner_code} = sub { "Hello World" };
-    #$self->stash->{banner_method} = "banner";
-    #$self->stash->{banner_txt} = "WELCOME TO SSH SERVER!\n";
-    $self->trace("MySSHDaemon:run_sshd");
-    return $self->SUPER::run_sshd();
+    return $init;
 }
 
 sub banner {
