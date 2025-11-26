@@ -1,0 +1,6 @@
+Revision history for Perl extension Net::SSH::Server.
+
+0.01  Tue Nov 25 18:42:11 2025
+	- original version; created by h2xs 1.23 with options
+		-b 5.10.0 -Afn Net::SSH::Server
+
