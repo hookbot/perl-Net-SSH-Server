@@ -27,9 +27,6 @@ our @EXPORT = qw(
 
 our $VERSION = '0.021';
 
-require XSLoader;
-XSLoader::load('Net::SSH::Server', $VERSION);
-
 # Preloaded methods go here.
 
 1;
