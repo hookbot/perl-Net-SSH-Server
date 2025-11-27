@@ -69,7 +69,7 @@ If you have a web site set up for your module, mention it here.
 
 =head1 AUTHOR
 
-Rob Brown, E<lt>hookbot@p1s.plx.sd.apple.comE<gt>
+Rob Brown, E<lt>bbb@cpan.orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 

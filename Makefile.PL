@@ -4,11 +4,9 @@ use ExtUtils::MakeMaker;
 # the contents of the Makefile that is written.
 WriteMakefile(
     NAME              => 'Net::SSH::Server',
-    VERSION_FROM      => 'lib/Net/SSH/Server.pm', # finds $VERSION, requires EU::MM from perl >= 5.5
-    PREREQ_PM         => {}, # e.g., Module::Name => 1.1
-    ABSTRACT_FROM     => 'lib/Net/SSH/Server.pm', # retrieve abstract from module
-    AUTHOR            => 'Rob Brown <hookbot@p1s.plx.sd.apple.com>',
-    #LICENSE           => 'perl',
-    #Value must be from legacy list of licenses here
-    #https://metacpan.org/pod/Module::Build::API
+    VERSION_FROM      => 'lib/Net/SSH/Server.pm',
+    PREREQ_PM         => {},
+    ABSTRACT_FROM     => 'lib/Net/SSH/Server.pm',
+    AUTHOR            => 'Rob Brown <bbb@cpan.org>',
+    LICENSE           => 'artistic_2',
 );
