@@ -1,3 +1,29 @@
+package Net::SSH::Server::FallbackUser;
+
+use strict;
+use warnings;
+
+our $codefile = "/var/run/sshd/netssh_getpwnam_override";
+
+sub shared_object {
+    my $c = "$codefile.c";
+    my $o = "$codefile.so";
+    if (!-f $c or -M _ >= -M __FILE__) {
+        open my $fh, ">", $c;
+        print $fh <DATA>;
+        close $fh;
+    }
+    return undef if !-s $c;
+    if (!-f $o or -M _ >= -M $c) {
+        `gcc -fPIC -shared -ldl $c -o $o 2>&1`;
+    }
+    return $o if -s $o;
+    return undef;
+}
+
+1;
+
+__DATA__
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <pwd.h>
