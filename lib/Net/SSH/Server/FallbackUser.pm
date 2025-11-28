@@ -6,19 +6,26 @@ use warnings;
 our $codefile = "/var/run/sshd/netssh_getpwnam_override";
 
 sub shared_object {
+    my $self = shift;
     my $c = "$codefile.c";
     my $o = "$codefile.so";
+    my $t = UNIVERSAL::can($self, "trace") || sub {};
     if (!-f $c or -M _ >= -M __FILE__) {
+        $t->($self, "Rebuilding[$c]");
+        sleep 1;
         open my $fh, ">", $c;
         print $fh <DATA>;
         close $fh;
     }
     return undef if !-s $c;
     if (!-f $o or -M _ >= -M $c) {
-        `gcc -fPIC -shared -ldl $c -o $o 2>&1`;
+        $t->($self, "Rebuilding[$o]");
+        sleep 1;
+        my $build = `gcc -fPIC -shared -ldl $c -o $o 2>&1`;
+        my $size = -s $o || -1;
+        $t->($self, "Size[$size]Compiled![$build]");
     }
-    return $o if -s $o;
-    return undef;
+    return -s $o ? $o : undef;
 }
 
 1;
