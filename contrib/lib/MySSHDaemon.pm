@@ -5,7 +5,6 @@ use base qw(Net::SSH::Server);
 
 sub init {
     my $self = shift;
-    $self->trace("MySSHDaemon:init");
     $self->SUPER::init();
     $self->register( trace_debug => \&stamp );
     $self->register( override_config_file => "/etc/ssh/sshdproxy_config" );
@@ -18,6 +17,7 @@ sub init {
     $self->register( username_validation_error => \&username_error );
     $self->register( skip_unix_shell => 0 );
     $self->register( shell => \&do_shell );
+    $self->trace("MySSHDaemon:init:done");
     return;
 }
 
