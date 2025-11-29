@@ -2,8 +2,6 @@ package Net::SSH::Server;
 
 use strict;
 use warnings;
-our $VERSION = '0.021';
-
 use FindBin qw($Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
 
@@ -135,7 +133,9 @@ Default is to do nothing for each ->trace call.
 
 =cut
 
-# Copy a shallow copy of %ENV
+our $VERSION = '0.021';
+
+# Make a shallow copy of %ENV
 our %ORIG_ENV = %ENV;
 
 our $valid_ssh_options = {
@@ -224,6 +224,7 @@ sub run {
     exit $self->run_sshd;
 }
 
+# run_shell
 sub run_shell {
     my $self = shift;
     my @pw = getpwuid $<;
