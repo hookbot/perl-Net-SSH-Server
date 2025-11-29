@@ -226,6 +226,11 @@ sub run {
         $self->{pam_env_needed} = !$ENV{SESSION_FILE};
         exit $self->run_authorizedkeyscommand;
     }
+    # Detect all other unimplemented action handlers
+    if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^(action=.*)/i) {
+        $self->trace("run:unknown handler $1");
+        exit 4; # PAM_SYSTEM_ERR /* System error */
+    }
     # Detect pam_exec case
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
         $ENV{PAM_ID} = $self->{pam_id} = getppid();
