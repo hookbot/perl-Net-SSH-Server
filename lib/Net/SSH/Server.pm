@@ -754,9 +754,7 @@ sub loadenv {
                 delete $ENV{$n};
                 next;
             }
-            my $v = $3;
-            $v =~ s/\\n/\n/g;
-            $ENV{$n} = $v;
+            $ENV{$n} = $3;
         }
     }
     return $ENV{$name};
@@ -795,7 +793,12 @@ sub saveenv {
     my $contents = "";
     foreach my $n (sort keys %$changes) {
         my $val = $changes->{$n};
-        $val =~ s/\n/\\n/g if defined $val;
+        if (defined $val and $val =~ /\n/) {
+            $val =~ s/\0.*//s;
+            $val =~ s/\n+$//;
+            $val =~ s/\n/\r/g;
+            $ENV{$n} = $val;
+        }
         $contents .= $n . (defined($val) ? "=$val" : "") . "\n";
     }
     seek $fh, 0, 0; # SEEK_SET
