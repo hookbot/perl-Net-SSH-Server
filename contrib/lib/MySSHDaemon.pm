@@ -23,7 +23,7 @@ sub init {
 
 # envdump: Show all %ENV on a single line
 sub envdump {
-    return join " ", map { "$_=$ENV{$_}" } sort keys %ENV;
+    return return shift->json->encode(\%ENV);
 }
 
 sub stamp {
