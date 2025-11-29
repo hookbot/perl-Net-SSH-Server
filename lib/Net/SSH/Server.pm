@@ -768,6 +768,7 @@ sub saveenv {
     my $changes = {};
     $ENV{SESSION_FILE} = $self->session_file;
     foreach my $old (keys %ORIG_ENV) {
+        next if $old !~ /^\w+$/;
         if (defined $ORIG_ENV{$old}) {
             if (defined $ENV{$old}) {
                 $changes->{$old} = $ENV{$old} if $ORIG_ENV{$old} ne $ENV{$old};
@@ -781,6 +782,7 @@ sub saveenv {
         }
     }
     foreach my $new (keys %ENV) {
+        next if $new !~ /^\w+$/;
         next if exists $ORIG_ENV{$new};
         $changes->{$new} = $ENV{$new};
     }
