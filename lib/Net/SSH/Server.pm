@@ -431,10 +431,13 @@ sub init_connection {
         $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
         $ENV{SSH_CONNECTION} .= " $port";
     }
-    if (my $failover_user = $self->register( "failover_user" )->[0]) {
-        $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
-        $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
-        $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
+    foreach my $failover_user (@{ $self->register( "failover_user" ) }) {
+        if (getpwnam $failover_user) {
+            $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
+            $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
+            $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
+            last;
+        }
     }
     my $banner_text = "";
     foreach my $banner_code (@{ $self->register( "banner" ) }) {
