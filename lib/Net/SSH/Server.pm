@@ -201,6 +201,8 @@ sub run {
     my $self = shift || __PACKAGE__;
     # Make sure $self is a real object instead of just a class
     ref $self or $self = $self->new;
+
+    # Detect shell case
     if ($< and $ENV{SHELL}) {
         exit $self->run_shell;
     }
@@ -228,14 +230,44 @@ sub run {
     exit $self->run_sshd;
 }
 
-# run_shell
+# run_shell - Spawns shell for USER running as $<
+# $ENV{USER} is username
+# $ENV{SSH_ORIGINAL_COMMAND} may be set as command requested
+# Must never return!
 sub run_shell {
     my $self = shift;
+    my $shells = $self->register("shell");
+    push @$shells, \&unix_shell if !$self->register("skip_unix_username_validation")->[0];
+    my $error = -1;
+    $ENV{USER} ||= getpwuid $<;
+    foreach my $code (@$shells) {
+        eval { $error = $code->($self, $ENV{USER}, $ENV{SSH_ORIGINAL_COMMAND}); 1; }
+            or $self->trace("run_shell:CRASH:$@");
+        $error = $@ || $error;
+    }
     my @pw = getpwuid $<;
     print "Ran as user: [@pw]\n";
     print "Spawn shell: [@{ $self->{run} }]\n";
     print "ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
-    return 0;
+    exit 4; # PAM_SYSTEM_ERR      /* System error */
+}
+
+# unix_shell( $user [, $cmd ] )
+# Inputs
+sub unix_shell {
+    my $self = shift;
+    my $user = shift;
+    my $cmd  = shift;
+    my @pw = getpwuid $< or return 10; # PAM_USER_UNKNOWN /* User not known to the underlying */
+    if (my $shell = $pw[8]) {
+        if ($cmd) {
+            exec $shell, "-c", $cmd;
+        }
+        else {
+            exec $shell;
+        }
+    }
+    return 4; # PAM_SYSTEM_ERR      /* System error */
 }
 
 # validate_pubkey

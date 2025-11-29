@@ -16,6 +16,7 @@ sub init {
     $self->register( password_validation_error => \&password_error );
     $self->register( skip_unix_username_validation => 0 );
     $self->register( username_validation_error => \&username_error );
+    $self->register( shell => \&do_shell );
     return;
 }
 
@@ -77,6 +78,21 @@ sub username_error {
     # Allow any other user that smells okay:
     $user=~/^[\w\-\.\@]+$/ and return 0;  # PAM_SUCCESS   /* Successful function return */
     return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+}
+
+# Spawn shell. Never return.
+sub do_shell {
+    my $self = shift;
+    my $user = shift;
+    my $cmd = shift;
+    my @pw = getpwuid $<;
+    print "Ran as user: [@pw]\n";
+    print "Requested command: [$cmd]\n" if defined $cmd and length $cmd;
+    print "Spawn shell: [@{ $self->{run} }]\n";
+    print "ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
+    # This is a fake user so don't actually provide a real shell.
+    # Just pretend like the operation was successful.
+    exit 0;
 }
 
 1;
