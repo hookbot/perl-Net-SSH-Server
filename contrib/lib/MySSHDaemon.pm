@@ -21,6 +21,11 @@ sub init {
     return;
 }
 
+# envdump: Show all %ENV on a single line
+sub envdump {
+    return join " ", map { "$_=$ENV{$_}" } sort keys %ENV;
+}
+
 sub stamp {
     my $self = shift;
     my $tag = shift || "unknown";
@@ -31,7 +36,7 @@ sub stamp {
     $stash =~ s/\'/'"\'"'/g;
     open my $fh, ">>", "/tmp/sshclient.log";
     chmod 0666, "/tmp/sshclient.log";
-    print $fh "$now [$ppid] [$$] uid=$<:$> [$tag] [@run] STASH[$stash] ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
+    print $fh "$now [$ppid] [$$] uid=$<:$> [$tag] [@run] STASH[$stash] ENV: @{[$self->envdump]}\n";
     close $fh;
 }
 
@@ -90,7 +95,7 @@ sub do_shell {
     print "Ran as user: [@pw]\n";
     print "Requested command: [$cmd]\n" if defined $cmd and length $cmd;
     print "Spawn shell: [@{ $self->{run} }]\n";
-    print "ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
+    print "ENV: @{[$self->envdump]}\n";
     # This is a fake user so don't actually provide a real shell.
     # Just pretend like the operation was successful.
     exit 0;
