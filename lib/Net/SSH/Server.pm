@@ -237,7 +237,7 @@ sub run {
 sub run_shell {
     my $self = shift;
     my $shells = $self->register("shell");
-    push @$shells, \&unix_shell if !$self->register("skip_unix_username_validation")->[0];
+    push @$shells, \&unix_shell if !$self->register("skip_unix_shell")->[0];
     my $error = -1;
     $ENV{USER} ||= getpwuid $<;
     foreach my $code (@$shells) {

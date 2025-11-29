@@ -16,6 +16,7 @@ sub init {
     $self->register( password_validation_error => \&password_error );
     $self->register( skip_unix_username_validation => 0 );
     $self->register( username_validation_error => \&username_error );
+    $self->register( skip_unix_shell => 0 );
     $self->register( shell => \&do_shell );
     return;
 }
