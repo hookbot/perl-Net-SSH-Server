@@ -135,6 +135,10 @@ Default is to do nothing for each ->trace call.
 
 our $VERSION = '0.021';
 
+# Temporary directory where to build and store helper files.
+# Pretty safe to remove before starting sshd.
+our $base = "/var/run/sshd";
+
 # Make a shallow copy of %ENV
 our %ORIG_ENV = %ENV;
 
@@ -497,6 +501,12 @@ sub banner_file {
     my $id = $self->{pam_id} ||= $ENV{PAM_ID};
     my $service = $self->pam_service;
     return "/var/run/sshd/banner-$service-$id.txt";
+}
+
+sub base {
+    my $self = shift;
+    mkdir $self->[base}, 0700 if !-d ($self->{base} ||= $base);
+    return $self->{base};
 }
 
 sub target {
