@@ -541,24 +541,36 @@ sub auth_check {
     my $try = { Password => $pw };
     push @{ $self->stash->{auth} ||= [] }, $try;
     my $error = -1;
-    if (!$self->register("skip_unix_password_validation")->[0]) {
-        eval { $error = $self->unix_password_validation_error($ENV{PAM_USER}, $ENV{PAM_PW}); 1; }
-            or $self->trace("auth_check:unix_password_validation_error:CRASH:$@");
-        push @{ $try->{error} ||= [] }, $error;
-        return 0 if !$error; # 0 PAM_SUCCESS
+    my $verifiers = [];
+    push @$verifiers, \&unix_username_validation_error if !$self->register("skip_unix_username_validation")->[0];
+    push @$verifiers, reverse @{ $self->register( "username_validation_error" ) };
+    foreach my $code (@$verifiers) {
+        eval { $error = $code->($self, $ENV{PAM_USER}); 1; }
+            or $self->trace("auth_check:username_validation_error:CRASH:$@");
+        $error = $@ || $error;
+        push @{ $try->{error} ||= [] }, "u:$error";
+        last if !$error; # 0 PAM_SUCCESS
     }
-    foreach my $code (reverse @{ $self->register( "password_validation_error" ) }) {
+    # If the username is broken, then there's no point to check the password:
+    return $error if $error; # Just bail out now
+
+    $error = -1;
+    $verifiers = [];
+    push @$verifiers, \&unix_password_validation_error if !$self->register("skip_unix_password_validation")->[0];
+    push @$verifiers, reverse @{ $self->register( "password_validation_error" ) };
+    foreach my $code (@$verifiers) {
         eval { $error = $code->($self, $ENV{PAM_USER}, $ENV{PAM_PW}); 1; }
             or $self->trace("auth_check:password_validation_error:CRASH:$@");
+        $error = $@ || $error;
         push @{ $try->{error} ||= [] }, $error;
-        return 0 if !$error; # 0 PAM_SUCCESS
+        last if !$error; # 0 PAM_SUCCESS
     }
-    # AUTH FAILED
     $self->trace("auth_check:end:error=$error");
     return $error;
 }
 
-# When "PasswordAuthentication yes" is enabled, then check passwd provided.
+# unix_password_validation_error( $password )
+# When "PasswordAuthentication yes" is enabled, then validate password provided.
 # Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
 sub unix_password_validation_error {
     my $self = shift;
@@ -625,28 +637,30 @@ sub account_acquire_session_lock {
 sub account_check {
     my $self = shift;
     $self->trace("account_check:top");
-    my $uid = undef;
-    my $pam_error = 0; # PAM_SUCCESS
-    eval {
-        #local $SIG{__DIE__} = sub { $pam_error = $_[0] };
-        $uid = $self->validate_user($ENV{PAM_USER});
-    };
-    $pam_error = $@ =~ /^(\d+)/ ? $1 : 0;
-    $pam_error ||= 10 if !defined $uid; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
-    $self->trace("account_check:[uid=".($uid // "(undef)")."][pam_error=$pam_error]");
-    return $pam_error;
+    my $error = -1;
+    my $verifiers = [];
+    push @$verifiers, \&unix_username_validation_error if !$self->register("skip_unix_username_validation")->[0];
+    push @$verifiers, reverse @{ $self->register( "username_validation_error" ) };
+    foreach my $code (@$verifiers) {
+        eval { $error = $code->($self, $ENV{PAM_USER}); 1; }
+            or $self->trace("auth_check:username_validation_error:CRASH:$@");
+        $error = $@ || $error;
+        last if !$error; # 0 PAM_SUCCESS
+    }
+    $self->trace("account_check:[user=$ENV{PAM_USER}][error=$error]");
+    return $error;
 }
 
-# Input: $user
-# Return: $uid if valid
-# DIE with PAM_* error code if $user is not valid user.
-sub validate_user {
+# unix_username_validation_error( $user )
+# Validate if $user is valid.
+# Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
+sub unix_username_validation_error {
     my $self = shift;
-    my $user = shift or die 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
+    my $user = shift or return 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
     my @ent = getpwnam $user;
-    $self->trace("validate_user:USER=[$user]:FOUND[@ent]");
-    defined(my $uid = @ent > 3 && $ent[2]) or die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
-    return $uid;
+    $self->trace("unix_username_validation_error:USER=[$user]:FOUND[@ent]");
+    @ent > 3 or return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    return 0; # PAM_SUCCESS
 }
 
 # account pam_env burner runs after "account" phase and before "session" phase.

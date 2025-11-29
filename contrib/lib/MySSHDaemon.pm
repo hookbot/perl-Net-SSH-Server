@@ -12,8 +12,10 @@ sub init {
     $self->register( override_config_directory => "/etc/ssh/sshdproxy_config.d" );
     $self->register( banner => \&banner );
     $self->register( failover_user => "sshproxy" );
+    $self->register( skip_unix_password_validation => 0 );
     $self->register( password_validation_error => \&password_error );
-    $self->register( skip_unix_password_validation => 1 );
+    $self->register( skip_unix_username_validation => 0 );
+    $self->register( username_validation_error => \&username_error );
     return;
 }
 
@@ -64,22 +66,17 @@ sub password_error {
         7 ; # PAM_AUTH_ERR  /* Authentication failure */
 }
 
-# validate_user
-# Input: $user
-# Return: $uid if valid
-# DIE with PAM_* error code if $user is not valid user.
-sub validate_user {
+# username_validation_error( $user )
+# Return PAM_* error code or 0 [PAM_SUCCESS] if no problem:
+sub username_error {
     my $self = shift;
-    my $user = shift         or die 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
+    my $user = shift        or return 8;  # PAM_CRED_INSUFFICIENT  /* Can not access authentication data */
     my @ent = getpwnam $user;
-    $self->trace("MySSHDaemon::validate_user:USER=[$user]:FOUND[@ent]");
-    my $uid = @ent > 3 && $ent[2];
-    return $uid if defined $uid and length $uid;
-    # Allow any user that smells okay:
-    $user =~ /^[\w\-\.\@]+$/ or die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
-    $uid = getpwnam $self->register("failover_user")->[0];
-    return $uid if defined $uid and length $uid;
-    die 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
+    $self->trace("MySSHDaemon->username_validation_error:USER=[$user]:FOUND[@ent]");
+    @ent > 3               and return 0;  # PAM_SUCCESS   /* Successful function return */
+    # Allow any other user that smells okay:
+    $user=~/^[\w\-\.\@]+$/ and return 0;  # PAM_SUCCESS   /* Successful function return */
+    return 10; # PAM_USER_UNKNOWN       /* User not known to the underlying authentication module */
 }
 
 1;
