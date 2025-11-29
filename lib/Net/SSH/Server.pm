@@ -37,6 +37,18 @@ Register a feature with a given setting.
 
   register( $feature => $value )
 
+Returns $self to allow for chaining, i.e.:
+
+    Net::SSH::Server->new->register( feature1 => "Enable" )->register( feature2 => "/dev/null" )->run;
+
+Note that if this $feature had already been set, then this new $value will be prepended to the front.
+This is intended so the most recent register $value can take precedence over previous settings.
+Depending on the $feature, some or all of the settings may be considered or processed.
+
+In order to view the current $feature settings without changing it,
+then do not provide a $value, and the ARRAYREF will be returned.
+If the $feature had never been registered, then returns an empty ARRAYREF.
+
 =head2 override_config_file
 
 Use specified config file.
@@ -182,6 +194,8 @@ sub new {
     return bless $self, $class;
 }
 
+# Method: register( $feature [, $value ] );
+# Purpose: Set or Get register settings
 sub register {
     my $self = shift;
     my $feature = shift or die "register: feature title required!\n";;
