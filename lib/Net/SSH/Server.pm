@@ -222,7 +222,7 @@ sub run {
     }
     # Detect AuthorizedKeysCommand
     if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^action=AuthorizedKeysCommand$/i) {
-        $ENV{PAM_ID} = $self->{pam_id} = getppid();
+        $ENV{PAM_ID} ||= $self->{pam_id} ||= getppid();
         $self->{pam_env_needed} = !$ENV{SESSION_FILE};
         exit $self->run_authorizedkeyscommand;
     }
