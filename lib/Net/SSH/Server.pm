@@ -216,8 +216,14 @@ sub run {
     # Make sure $self is a real object instead of just a class
     ref $self or $self = $self->new;
 
-    # Detect shell case
-    if ($< and $ENV{SHELL}) {
+    # Detect SHELL case
+    if ($ENV{SHELL} and $ENV{SHELL} eq $0) {
+        # Looks like special NET_SSH_FALLBACK_SHELL override hack case
+        exit $self->run_shell;
+    }
+    # Detect ForceCommand
+    if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^action=ForceCommand$/i) {
+        # Forced shell after successful login
         exit $self->run_shell;
     }
     # Detect AuthorizedKeysCommand
@@ -249,7 +255,7 @@ sub run {
     exit $self->run_sshd;
 }
 
-# run_shell - Spawns shell for USER running as $<
+# run_shell - Spawns SHELL for USER running as $<
 # $ENV{USER} is username
 # $ENV{SSH_ORIGINAL_COMMAND} may be set as command requested
 # Must never return!
@@ -259,16 +265,31 @@ sub run_shell {
     push @$shells, \&unix_shell if !$self->register("skip_unix_shell")->[0];
     my $error = -1;
     $ENV{USER} ||= getpwuid $<;
+    $self->trace("run_shell:[@$shells]");
+    splice @{ $self->{run} }, 1, 1 if (($self->cmdline)[0]||"") =~ /^action=ForceCommand$/i;
+    #splice @{ $self->{run} }, 1, 1 if $self->cmdline and [$self->cmdline]->[0] =~ /^action=ForceCommand$/i;
+    #splice @{ $self->{run} }, 1, 1 if $self->cmdline and ($self->cmdline)[0] =~ /^action=ForceCommand$/i;
+    #if (my $argv = [ $self->cmdline ]) {  splice @{ $self->{run} }, 1, 1 if @$argv and $argv->[0] =~ /^action=ForceCommand$/i; }
+    my $tries = 0;
     foreach my $code (@$shells) {
-        eval { $error = $code->($self, $ENV{USER}, $ENV{SSH_ORIGINAL_COMMAND}); 1; }
-            or $self->trace("run_shell:CRASH:$@");
-        $error = $@ || $error;
+        $tries++;
+        $self->trace("run_shell:Try#$tries:CODE=$code");
+        eval { $error = $code->($self, $ENV{USER}, $ENV{SSH_ORIGINAL_COMMAND}); 1; };
+        if (my $crashed = $@) {
+            $self->trace("run_shell:Try#$tries:ERROR=$error:CRASH:$@");
+            $error = $@;
+        }
+        else {
+            $self->trace("run_shell:Try#$tries:ERROR=$error");
+        }
     }
-    my @pw = getpwuid $<;
-    print "Ran as user: [@pw]\n";
-    print "Spawn shell: [@{ $self->{run} }]\n";
-    print "ENV: ".(join " ", map { "$_=$ENV{$_}" } sort keys %ENV)."\n";
-    exit 4; # PAM_SYSTEM_ERR      /* System error */
+    $self->trace("run_shell:AllShellsFailed:ERROR=$error");
+    warn localtime().": run_shell uid $< failed: $error\n";
+    warn localtime().": command: $ENV{SSH_ORIGINAL_COMMAND}\n" if $ENV{SSH_ORIGINAL_COMMAND};
+    warn localtime().": TTY: $ENV{SSH_TTY}\n" if $ENV{SSH_TTY};
+    $error = $error =~ /(\d+)/ ? $1 : "";
+    $error ||= 4; # PAM_SYSTEM_ERR  /* System error */
+    exit $error;
 }
 
 # unix_shell( $user [, $cmd ] )
@@ -276,15 +297,21 @@ sub run_shell {
 sub unix_shell {
     my $self = shift;
     my $user = shift;
-    my $cmd  = shift;
+    my $cmd  = shift // '';
     my @pw = getpwuid $< or return 10; # PAM_USER_UNKNOWN /* User not known to the underlying */
     if (my $shell = $pw[8]) {
-        if ($cmd) {
-            exec $shell, "-c", $cmd;
+        warn localtime().": DEBUG: Running Net::SSH::Server unix_shell ...\n";
+        my @spawn = $self->cmdline;
+        if (!@spawn and length $cmd) {
+            @spawn = (-c => $cmd);
+            delete $ENV{SSH_ORIGINAL_COMMAND};
         }
-        else {
-            exec $shell;
+        my $spoof = $shell;
+        if ($ENV{SSH_TTY}) {
+            $spoof = "-$1" if $spoof =~ m{([^/]+)$};
         }
+        unshift @spawn, $spoof;
+        exec { $shell } @spawn;
     }
     return 4; # PAM_SYSTEM_ERR      /* System error */
 }

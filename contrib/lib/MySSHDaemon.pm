@@ -90,14 +90,35 @@ sub username_error {
 sub do_shell {
     my $self = shift;
     my $user = shift;
-    my $cmd = shift;
-    my @pw = getpwuid $<;
-    print "Ran as user: [@pw]\n";
-    print "Requested command: [$cmd]\n" if defined $cmd and length $cmd;
+    my $cmd = shift // '';
+    $| = 1;
+    if (getpwnam $user) {
+        # Real user, so fall back to the default handler
+        warn localtime().": MySSHDaemon found real user $user\n";
+        die "10 # PAM_USER_UNKNOWN";
+    }
+    #my @pw = getpwnam $user;
+    #$self->trace("do_shell:user=$user:pw[@pw]");
+    $self->trace("do_shell:user=$user");
+    warn localtime().": DEBUG: Running MySSHDaemon do_shell for fake user $user ...\n";
+    #if (@pw) {
+    #    warn localtime().": MySSHDaemon found real user $user\n";
+    #    exit $self->unix_shell($user,$cmd);
+    #}
+    #my @pw = getpwuid $<;
+    #$self->trace("do_shell:uid=$<:pw[@pw]");
+    #print "Ran as user: [@pw]\n";
+    print "Running as user: $user\n";
+    print "Requested command: [$cmd]\n" if length $cmd;
     print "Spawn shell: [@{ $self->{run} }]\n";
     print "ENV: @{[$self->envdump]}\n";
     # This is a fake user so don't actually provide a real shell.
     # Just pretend like the operation was successful.
+    print "Created TTY: $ENV{SSH_TTY}\n" if $ENV{SSH_TTY};
+    print "Please wait while pretending to run a fake ssh session ...\n";
+    for (1..10) { print "."; sleep 1; }
+    print "\nBYE!\n";
+    sleep 1;
     exit 0;
 }
 
