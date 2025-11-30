@@ -243,7 +243,7 @@ sub run {
         exit if fork;
     }
     # Now we know it's the perfect non-detach mode to allow easy monitoring
-    $ENV{NET_SSH_EXEC_PID} = $$;
+    $ENV{NET_SSH_EXEC_PID} ||= $$;
     $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
     eval { $self->generate_pam_config } if !-f $self->pam_file;
     exit $self->run_sshd;
