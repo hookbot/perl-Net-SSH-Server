@@ -23,7 +23,7 @@ sub init {
 
 # envdump: Show all %ENV on a single line
 sub envdump {
-    return join " ", map { (/^[A-Z_]+$/ ? do { my $v = $ENV{$_}; my $q = $v=~s/\\/\\\\/g + $v=~s/\"/\\\"/g + $v=~s/\n/\\n/ + $v=~s/ / /; ($q ? qq{$_="$v"} : "$_=$v") } : ()); } sort keys %ENV;
+    return join " ", map { (/^[A-Z_]+$/ ? do { my $v = $ENV{$_}; my $q = $v=~s/\\/\\\\/g + $v=~s/\"/\\\"/g + $v=~s/\$/\\\$/g + $v=~s/\n/\\n/ + $v=~s/ / /; ($q ? qq{$_="$v"} : "$_=$v") } : ()); } sort keys %ENV;
 }
 
 sub stamp {
