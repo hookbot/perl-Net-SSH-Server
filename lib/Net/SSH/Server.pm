@@ -2,7 +2,7 @@ package Net::SSH::Server;
 
 use strict;
 use warnings;
-use FindBin qw($Script);
+use FindBin qw($Bin $Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
 
 =pod
@@ -207,9 +207,16 @@ sub register {
 }
 
 # Method: init
-# Purpose: Run when a new instance is created
-# Default is to do nothing
-sub init {}
+# Purpose: Runs when a new instance is created.
+# This can be used to adjust settings.
+# If overloading this method, then it is also recommended
+# to call $self->SUPER::init in order to ensure ISA downline
+# is still able to run their initializations too.
+sub init {
+    my $self = shift;
+    # Sanity check to ensure my full path is used instead of a relative path:
+    $self->{run}->[0] = "$Bin/$Script" if $0 !~ /^\//;
+}
 
 sub run {
     my $self = shift || __PACKAGE__;
