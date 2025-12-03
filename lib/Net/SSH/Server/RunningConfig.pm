@@ -13,7 +13,7 @@ sub load {
     require Socket; # MSG_PEEK
     require IO::Handle; # new_from_fd
     my $daddy_pid = $ENV{NET_SSH_EXEC_PID} or return; # ERROR: Missing or unknown daddy parent.
-    my $cache_running_config = $self->base()."/running-config-$daddy_pid.payload";
+    my $cache_running_config = $self->base."/running-config-$daddy_pid.payload";
     -s $cache_running_config and return $self->{running_config_file} = $cache_running_config; # SUCCESS: Already loaded. YEY!
     if (my $fd = POSIX::dup($recv_rexec_state)) {
         # Just for fun, peek at the live sshd configuration

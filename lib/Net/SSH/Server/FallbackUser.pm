@@ -3,12 +3,12 @@ package Net::SSH::Server::FallbackUser;
 use strict;
 use warnings;
 
-our $codefile = "/var/run/sshd/netssh_getpwnam_override";
+sub codefile { shift->base."/netssh_getpwnam_override" }
 
 sub shared_object {
     my $self = shift;
-    my $c = "$codefile.c";
-    my $o = "$codefile.so";
+    my $c = $self->codefile.".c";
+    my $o = $self->codefile.".so";
     my $t = UNIVERSAL::can($self, "trace") || sub {};
     if (!-f $c or -M _ >= -M __FILE__) {
         $t->($self, "Rebuilding[$c]");
