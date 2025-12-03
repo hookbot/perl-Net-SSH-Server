@@ -9,7 +9,7 @@ sub init {
     $self->register( trace_debug => \&stamp );
     $self->register( override_config_file => "/etc/ssh/sshdproxy_config" );
     $self->register( override_config_directory => "/etc/ssh/sshdproxy_config.d" );
-    $self->register( banner => \&banner );
+    $self->register( preauth_stderr => \&preauth );
     $self->register( failover_user => "sshproxy" );
     $self->register( skip_unix_password_validation => 0 );
     $self->register( password_validation_error => \&password_error );
@@ -40,19 +40,19 @@ sub stamp {
     close $fh;
 }
 
-sub banner {
+sub preauth {
     my $self = shift;
     my ($remote_addr, $remote_port, $server_addr, $server_port) = split / /, $ENV{SSH_CONNECTION};
     $remote_addr = "[$remote_addr]" if $remote_addr =~ /:/;
     $server_addr = "[$server_addr]" if $server_addr =~ /:/;
     $self->trace("banner($remote_addr:$remote_port=>$server_addr:$server_port)");
-    return qq{
-**** Welcome to the BASTION BOUNCER BOX! ****
+    print STDERR qq{**** Welcome to the BASTION BOUNCER BOX! ****
 MySSHDaemon custom banner for service $ENV{PAM_SERVICE}
 Connected from $remote_addr:$remote_port to $server_addr:$server_port
 For SSH Public Key help, go here:
 https://website.com/settings.html
 };
+    return;
 }
 
 # password_error( $username, $password )

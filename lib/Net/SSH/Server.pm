@@ -81,26 +81,27 @@ Example:
 
 Default "sshd"
 
-=head2 banner
+=head2 preauth_stderr
 
-CODEREF that returns a string used as the pre-banner.
-This banner message will be shown to the SSH client
+CODEREF that prints to STDERR,
+which will be sent to the STDERR of the SSH client
 immediately after connecting but prior to any
 authentication, regardless of the username or whether
 a TTY is requested or not or even whether the login
-is successful or not.  The username is still unknown
+is successful or not. The username is still unknown
 this early, but the SSH_CONNECTION environment
 variable will be populated at this point.
 
 Example:
 
-  $self->register( banner => sub {
+  $self->register( preauth_stderr => sub {
     my $self = shift;
     my ($ip) = split / /, $ENV{SSH_CONNECTION};
-    return "*** Welcome to Perl SSHD from $ip ****\n";
+    warn "*** Welcome to Perl SSHD from $ip ****\n";
   } );
 
-Default is the empty string, meaning no banner at all.
+Default is to print nothing, so the SSH client will
+see nothing prior to beginning authentication.
 
 =head2 failover_user
 
@@ -533,19 +534,21 @@ sub init_connection {
             last;
         }
     }
-    my $banner_text = "";
-    foreach my $banner_code (@{ $self->register( "banner" ) }) {
-        if (my $banner_out = eval { $banner_code->($self) }) {
-            $banner_text .= $banner_out;
+    if (my @warners = @{ $self->register( "preauth_stderr" ) }) {
+        local *STDERR;
+        my $banner_text = "";
+        open STDERR, ">", \$banner_text;
+        foreach my $banner_code (@{ $self->register( "banner" ) }) {
+            eval { $banner_code->($self); 1; } or !$@ or print STDERR $@;
         }
-    }
-    if ($banner_text) {
-        my $banner_file = $self->banner_file;
-        if (open my $fh, ">", $banner_file) {
-            print $fh $banner_text;
-            close $fh;
-            $ENV{BANNER_FILE} = $banner_file;
-            $self->cmdline("-o", "Banner $banner_file");
+        if ($banner_text) {
+            my $banner_file = $self->banner_file;
+            if (open my $fh, ">", $banner_file) {
+                print $fh $banner_text;
+                close $fh;
+                $ENV{BANNER_FILE} = $banner_file;
+                $self->cmdline("-o", "Banner $banner_file");
+            }
         }
     }
     $self->trace("init_connection:end");
