@@ -81,10 +81,10 @@ Example:
 
 Default "sshd"
 
-=head2 preauth_stderr
+=head2 preauth_message
 
-CODEREF that prints to STDERR,
-which will be sent to the STDERR of the SSH client
+CODEREF that prints output. All its STDOUT and STDERR
+will be sent to the STDERR of the SSH client
 immediately after connecting but prior to any
 authentication, regardless of the username or whether
 a TTY is requested or not or even whether the login
@@ -92,9 +92,27 @@ is successful or not. The username is still unknown
 this early, but the SSH_CONNECTION environment
 variable will be populated at this point.
 
+CAVEATS:
+
+1. The SSH protocol RFC does not allow anything to
+go to the client's STDOUT prior to authentication.
+Anything printed on STDOUT will just be redirected
+to STDERR. i.e., 1>&2
+
+2. In order to capture the output, tied handles are used
+for now so some low-level operations will not work, such
+as system("date") since it prints to the raw STDOUT fd.
+As a work-around, you can do this: print `date`;
+
+3. This relies on the reexec sshd feature so it won't
+work if built with: ./configure --disable-reexec
+
+  You can test if this feature is enabled like this:
+  strings `which sshd` | grep recv_rexec_state
+
 Example:
 
-  $self->register( preauth_stderr => sub {
+  $self->register( preauth_message => sub {
     my $self = shift;
     my ($ip) = split / /, $ENV{SSH_CONNECTION};
     warn "*** Welcome to Perl SSHD from $ip ****\n";
@@ -534,11 +552,14 @@ sub init_connection {
             last;
         }
     }
-    if (my @warners = @{ $self->register( "preauth_stderr" ) }) {
+    if (my @warners = @{ $self->register( "preauth_message" ) }) {
+        # Capture all output (either STDOUT or STDERR)
+        local *STDOUT;
         local *STDERR;
         my $banner_text = "";
-        open STDERR, ">", \$banner_text;
-        foreach my $banner_code (@{ $self->register( "banner" ) }) {
+        open STDOUT, ">>", \$banner_text;
+        open STDERR, ">>", \$banner_text;
+        foreach my $banner_code (@{ $self->register( "preauth_message" ) }) {
             eval { $banner_code->($self); 1; } or !$@ or print STDERR $@;
         }
         if ($banner_text) {
