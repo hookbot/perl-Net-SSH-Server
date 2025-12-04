@@ -237,6 +237,9 @@ sub init {
     $self->{run}->[0] = "$Bin/$Script" if $0 !~ /^\//;
 }
 
+# run
+# Based on ARGV and/or ENV, hand off control to the appropriate
+# run_* method corresponding to the operation.
 sub run {
     my $self = shift || __PACKAGE__;
     # Make sure $self is a real object instead of just a class
@@ -245,39 +248,32 @@ sub run {
     # Detect SHELL case
     if ($ENV{SHELL} and $ENV{SHELL} eq $0) {
         # Looks like special NET_SSH_FALLBACK_SHELL override hack case
+        # XXX - Do we really need to detect this special case? Or can we use ForceCommand to always avoid it?
         exit $self->run_shell;
     }
-    # Detect ForceCommand
-    if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^action=ForceCommand$/i) {
-        # Forced shell after successful login
-        exit $self->run_shell;
+    # Test if at least one argument:
+    if (@_ = $self->cmdline and local $_ = $_[0]) {
+        # Has at least one arg, so just check the first one:
+        # Detect "action" handlers
+        if (/^action=(.*)/i and defined ($_ = lc $1)) {
+            # Detect ForceCommand
+            if (/^ForceCommand$/i) {
+                # Forced shell after successful auth
+                exit $self->run_shell;
+            }
+            # Detect AuthorizedKeysCommand
+            if (/^AuthorizedKeysCommand$/i) {
+                exit $self->run_authorizedkeyscommand;
+            }
+            # Other unimplemented "action" handler:
+            $self->trace("run:unknown handler $_[0]");
+            exit 4; # PAM_SYSTEM_ERR /* System error */
+        }
+        # Detect pam_exec case
+        if (/^pam_exec_step=(.+)/) {
+            exit $self->run_pam_exec;
+        }
     }
-    # Detect AuthorizedKeysCommand
-    if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^action=AuthorizedKeysCommand$/i) {
-        $ENV{PAM_ID} ||= $self->{pam_id} ||= getppid();
-        $self->{pam_env_needed} = !$ENV{SESSION_FILE};
-        exit $self->run_authorizedkeyscommand;
-    }
-    # Detect all other unimplemented action handlers
-    if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^(action=.*)/i) {
-        $self->trace("run:unknown handler $1");
-        exit 4; # PAM_SYSTEM_ERR /* System error */
-    }
-    # Detect pam_exec case
-    if (1 < @{ $self->{run} } and $self->{run}->[1] =~ /^pam_exec_step=(.+)/) {
-        $ENV{PAM_ID} = $self->{pam_id} = getppid();
-        $self->{pam_env_needed} = !$ENV{SESSION_FILE};
-        exit $self->run_pam_exec;
-    }
-    # Implement missing "-D" case, by Detaching and launching WITH "-D":
-    if (!grep { $_ eq "-D" } @{ $self->{run} }) {
-        $self->cmdline("-D");
-        exit if fork;
-    }
-    # Now we know it's the perfect non-detach mode to allow easy monitoring
-    $ENV{NET_SSH_EXEC_PID} ||= $$;
-    $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
-    eval { $self->generate_pam_config } if !-f $self->pam_file;
     exit $self->run_sshd;
 }
 
@@ -395,6 +391,8 @@ sub validate_pubkey {
 
 sub run_authorizedkeyscommand {
     my $self = shift;
+    $ENV{PAM_ID} ||= $self->{pam_id} ||= getppid();
+    $self->{pam_env_needed} = !$ENV{SESSION_FILE};
     my (undef, $user, $homedir, $keytype, $pubkey, $fingerprint) = $self->cmdline;
     $self->loadstash;
     my $args = {
@@ -480,6 +478,8 @@ sub session_file {
 
 sub run_pam_exec {
     my $self = shift;
+    $ENV{PAM_ID} = $self->{pam_id} = getppid();
+    $self->{pam_env_needed} = !$ENV{SESSION_FILE};
     my $type = $ENV{PAM_TYPE} or die "pam_exec: type failure\n";
     my $step = $self->pam_args->{pam_exec_step} or die "pam_exec: step failure\n";
     $step =~ s/-/_/g;
@@ -545,6 +545,7 @@ sub init_connection {
         $ENV{SSH_CONNECTION} .= " $port";
     }
     foreach my $failover_user (@{ $self->register( "failover_user" ) }) {
+        # Most recent one bricks over whatever NET_SSH_FALLBACK_USER was before
         if (getpwnam $failover_user) {
             $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
             $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
@@ -590,6 +591,17 @@ sub preload_so {
 sub run_sshd {
     my $self = shift;
     $self->trace("run_sshd:top");
+
+    # Implement missing "-D" case, by Detaching and launching WITH "-D":
+    if (!grep { $_ eq "-D" } $self->cmdline) {
+        $self->cmdline("-D");
+        exit if fork;
+    }
+
+    # Now we know it's the perfect non-detach mode to allow easy monitoring
+    $ENV{NET_SSH_EXEC_PID} ||= $$;
+    $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
+    eval { $self->generate_pam_config } if !-f $self->pam_file;
     $self->init_commandline_args;
     my $target = $self->target;
     die "$target: Not executable\n" if !-x $target;
