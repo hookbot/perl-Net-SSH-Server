@@ -1002,8 +1002,10 @@ sub run_reexec_check {
                 }
                 $log_file //= 'Sys::Syslog'; # Default to syslog
                 $log_file = undef if $log_file eq "STDERR";
+                # Conjure ports so Net::Server bind()s compatibly like sshd would
+                my $port = [ map { /^((\d+\.\d+\.\d+\.\d+)|\[[0-9a-fA-F:]+\]):(\d+)$/ ? { host => $1, port => $3, ipv => ($2?4:6) } : () } @{ $conf->{listenaddress} } ];
                 my $run_args = {
-                    port => $conf->{port}, # XXX - Does listenaddress break IPv6?
+                    port => $port,
                     pid_file => ($conf->{pidfile}->[0] || "/var/run/$Script.pid"),
                     log_file => $log_file,
                     syslog_ident => $Script,
