@@ -608,11 +608,15 @@ sub run_sshd {
     die "$target: Not executable\n" if !-x $target;
     die "$0: Invalid invocation\n" if $target eq $self->{run}->[0];
     if (my $sockaddr = getpeername STDIN) {
-        # Probably -R mode or xinetd-style connection.
+        # Probably -R mode or -i mode inetd-style connection.
         $ENV{PAM_ID} = $self->{pam_id} = $$;
         $self->loadstash;
         $self->init_connection;
         $self->savestash;
+    }
+    else {
+        # Not a child process connection handler
+        $self->run_reexec_check;
     }
     $self->trace("run_sshd:EndOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
     exec { $target } @{ $self->{run} } or die "$0: spawn failure: $!\n";
@@ -948,6 +952,82 @@ sub trace {
         eval { $code->($self, $tag) };
     }
     return;
+}
+
+sub sshd_config {
+    my $self = shift;
+    open my $fh, "-|", $self->target, "-T", $self->cmdline;
+    my $conf = {};
+    while (<$fh>) {
+        push @{ $conf->{lc $1} ||= [] }, $2 if /^(\w+)\s(.*)/;
+    }
+    close $fh;
+    return $conf;
+}
+
+sub run_reexec_check {
+    my $self = shift;
+    $self->trace("run_reexec_check:top");
+    my $target = $self->target;
+    if (!grep { /^-\w*[Titd]/ } $self->cmdline) {
+        # Not -T test config mode
+        # And Not -i inet mode
+        # And Not -t validation
+        # And Not -d debug mode
+        # So we must actually bind, listen, & do accept loop.
+        # So we need to do either sshd re-exec mode or Net::Server mode:
+        if ($self->register("avoid_reexec_mode")->[0]  # Desires to use Net::Server::Fork mode
+            or `$target -R 2>&1` =~ /(.+)/) {          # Or "-R not supported" spewage
+            # So we must pretend like sshd and bind the port and listen for connections and run the inetd children for each connection.
+            # Don't let sshd attempt to do send_rexec_state using -R reexec mode.
+            # XXX - Do we really still need Net::Server if there is no "preauth_message" or custom banner?
+            if (eval { require Net::Server::Fork; 1; }) {
+                $self->trace("run_reexec_check:Switching to Net::Server::Fork mode");
+                my $conf = $self->sshd_config;
+                my $log_file = undef;
+                foreach ($self->cmdline) {
+                    if (defined $log_file) {
+                        $log_file = $_;
+                        last;
+                    }
+                    $log_file = $1 if /^-\w*E(.*)$/;      # Specify log_file: -E <log_file>
+                    $log_file = "/dev/null" if /^-\w*q/;  # Don't log for Quiet Mode: -q
+                    last if $log_file;
+                    if (/^-\w*e/) {      # -e logs to STDERR
+                        $log_file = 'STDERR';
+                        last;
+                    }
+                }
+                $log_file //= 'Sys::Syslog'; # Default to syslog
+                $log_file = undef if $log_file eq "STDERR";
+                my $run_args = {
+                    port => $conf->{port}, # XXX - Does listenaddress break IPv6?
+                    pid_file => ($conf->{pidfile}->[0] || "/var/run/$Script.pid"),
+                    log_file => $log_file,
+                    syslog_ident => $Script,
+                };
+                $self->cmdline("-i");
+                my @run = @{ $self->{run} };
+                my $sshserver = Net::Server::SSHD->new;
+                $sshserver->{run_inet} = sub { exec { $run[0] } @run or die "$0: spawn failure: $!\n" };
+                $sshserver->run($run_args) or die "$0: Failed to launch Net::Server\n";
+            }
+            $self->trace("run_reexec_check:Net::Server FAILURE: $@");
+        }
+    }
+    # Falling back to -r or -R mode.
+    $self->trace("run_reexec_check:Not using Net::Server");
+}
+
+package Net::Server::SSHD;
+use strict;
+use warnings;
+our @ISA = qw(Net::Server::Fork);
+sub process_request {
+    my $self = shift;
+    my $code = $self->{run_inet} or die "$0: Invalid invocation\n";;
+    $code->($self);
+    die "$0: inet failed\n";
 }
 
 1;
