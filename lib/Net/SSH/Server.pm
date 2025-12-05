@@ -537,12 +537,14 @@ sub init_connection {
     if (!$ENV{SSH_CONNECTION}) {
         require Socket;
         my $sockaddr = getpeername STDIN;
-        my ($family, $port) = unpack vn => $sockaddr;
-        $ENV{SSH_CONNECTION}  = $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
-        $ENV{SSH_CONNECTION} .= " $port ";
-        ($family, $port) = unpack vn => ($sockaddr = getsockname STDIN);
-        $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
-        $ENV{SSH_CONNECTION} .= " $port";
+        my $IPv4 = (my $family = Socket::sockaddr_family($sockaddr)) == Socket::AF_INET();
+        my $un = \&{ "Socket::sockaddr_in".($IPv4?"":6) };
+        my $view_h_p = $IPv4
+            ? sub { @_=$un->(@_); join " ",(Socket::inet_ntoa($_[1]),$_[0]) }
+            : sub { @_=$un->(@_); join " ",(Socket::inet_ntop($family,$_[1]),$_[0]) };
+        $ENV{SSH_CONNECTION} = $view_h_p->($sockaddr);
+        $sockaddr = getsockname STDIN;
+        $ENV{SSH_CONNECTION} .= " ".$view_h_p->($sockaddr);
     }
     if (my @warners = @{ $self->register( "preauth_message" ) }) {
         # Capture all output (either STDOUT or STDERR)
