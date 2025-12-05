@@ -544,15 +544,6 @@ sub init_connection {
         $ENV{SSH_CONNECTION} .= $family == Socket::AF_INET() ? Socket::inet_ntoa([Socket::sockaddr_in($sockaddr)]->[1]) : Socket::inet_ntop($family, [Socket::sockaddr_in6($sockaddr)]->[1]);
         $ENV{SSH_CONNECTION} .= " $port";
     }
-    foreach my $failover_user (@{ $self->register( "failover_user" ) }) {
-        # Most recent one bricks over whatever NET_SSH_FALLBACK_USER was before
-        if (getpwnam $failover_user) {
-            $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
-            $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
-            $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
-            last;
-        }
-    }
     if (my @warners = @{ $self->register( "preauth_message" ) }) {
         # Capture all output (either STDOUT or STDERR)
         local *STDOUT;
@@ -601,6 +592,15 @@ sub run_sshd {
     # Now we know it's the perfect non-detach mode to allow easy monitoring
     $ENV{NET_SSH_EXEC_PID} ||= $$;
     $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
+    foreach my $failover_user (@{ $self->register( "failover_user" ) }) {
+        # Most recent one bricks over whatever NET_SSH_FALLBACK_USER was before
+        if (getpwnam $failover_user) {
+            $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
+            $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
+            $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
+            last;
+        }
+    }
     eval { $self->generate_pam_config } if !-f $self->pam_file;
     $self->init_commandline_args;
     my $target = $self->target;
