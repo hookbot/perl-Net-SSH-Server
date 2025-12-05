@@ -587,6 +587,7 @@ sub run_sshd {
     if (!grep { $_ eq "-D" } $self->cmdline) {
         $self->cmdline("-D");
         exit if fork;
+        eval { require POSIX; POSIX::setsid(); };
     }
 
     # Now we know it's the perfect non-detach mode to allow easy monitoring
