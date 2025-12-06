@@ -979,7 +979,7 @@ sub run_reexec_check {
         # So we must actually bind, listen, & do accept loop.
         # So we need to do either sshd re-exec mode or Net::Server mode:
         if ($self->register("avoid_reexec_mode")->[0]  # Desires to use Net::Server::Fork mode
-            or `$target -R 2>&1` =~ /(.+)/) {          # Or "-R not supported" spewage
+            or `$target -q -R 2>&1` =~ /(.+)/) {       # Or "-R not supported" spewage
             # So we must pretend like sshd and bind the port and listen for connections and run the inetd children for each connection.
             # Don't let sshd attempt to do send_rexec_state using -R reexec mode.
             if (eval { require Net::Server::Fork; 1; }) {
