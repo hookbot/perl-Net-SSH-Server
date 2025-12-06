@@ -982,34 +982,25 @@ sub run_reexec_check {
             or `$target -R 2>&1` =~ /(.+)/) {          # Or "-R not supported" spewage
             # So we must pretend like sshd and bind the port and listen for connections and run the inetd children for each connection.
             # Don't let sshd attempt to do send_rexec_state using -R reexec mode.
-            # XXX - Do we really still need Net::Server if there is no "preauth_message" or custom banner?
             if (eval { require Net::Server::Fork; 1; }) {
                 $self->trace("run_reexec_check:Switching to Net::Server::Fork mode");
                 my $conf = $self->sshd_config;
-                my $log_file = undef;
-                foreach ($self->cmdline) {
-                    if (defined $log_file) {
-                        $log_file = $_;
-                        last;
-                    }
-                    $log_file = $1 if /^-\w*E(.*)$/;      # Specify log_file: -E <log_file>
-                    $log_file = "/dev/null" if /^-\w*q/;  # Don't log for Quiet Mode: -q
-                    last if $log_file;
-                    if (/^-\w*e/) {      # -e logs to STDERR
-                        $log_file = 'STDERR';
-                        last;
-                    }
-                }
-                $log_file //= 'Sys::Syslog'; # Default to syslog
-                $log_file = undef if $log_file eq "STDERR";
                 # Conjure ports so Net::Server bind()s compatibly like sshd would
                 my $port = [ map { /^((\d+\.\d+\.\d+\.\d+)|\[[0-9a-fA-F:]+\]):(\d+)$/ ? { host => $1, port => $3, ipv => ($2?4:6) } : () } @{ $conf->{listenaddress} } ];
                 my $run_args = {
                     port => $port,
                     pid_file => ($conf->{pidfile}->[0] || "/var/run/$Script.pid"),
-                    log_file => $log_file,
-                    syslog_ident => $Script,
                 };
+                my $log_file = undef;
+                foreach ($self->cmdline) {
+                    $log_file = $_ if defined $log_file;  # Specify log_file: -E <log_file>
+                    $log_file = $1 if /^-\w*E(.*)$/;      # Specify log_file: -E<log_file>
+                    $log_file = '/dev/null' if /^-\w*q/;  # Don't log for Quiet Mode: -q
+                    $log_file = 'STDERR' if /^-\w*e/;     # Log to STDERR: -e
+                    last if $log_file;
+                }
+                $log_file //= do { $run_args->{syslog_ident} = $Script; 'Sys::Syslog' }; # Default to syslog
+                $run_args->{log_file} = $log_file if $log_file ne 'STDERR'; # Omit {log_file} for option: -e
                 $self->cmdline("-i");
                 my @run = @{ $self->{run} };
                 my $sshserver = Net::Server::SSHD->new;
