@@ -1003,6 +1003,7 @@ sub run_reexec_check {
                 $run_args->{log_file} = $log_file if $log_file ne 'STDERR'; # Omit {log_file} for option: -e
                 $self->cmdline("-i");
                 my @run = @{ $self->{run} };
+                require Net::Server::SSHD;
                 my $sshserver = Net::Server::SSHD->new;
                 $sshserver->{run_inet} = sub { exec { $run[0] } @run or die "$0: spawn failure: $!\n" };
                 $sshserver->run($run_args) or die "$0: Failed to launch Net::Server\n";
@@ -1012,17 +1013,6 @@ sub run_reexec_check {
     }
     # Falling back to -r or -R mode.
     $self->trace("run_reexec_check:Not using Net::Server");
-}
-
-package Net::Server::SSHD;
-use strict;
-use warnings;
-our @ISA = qw(Net::Server::Fork);
-sub process_request {
-    my $self = shift;
-    my $code = $self->{run_inet} or die "$0: Invalid invocation\n";;
-    $code->($self);
-    die "$0: inet failed\n";
 }
 
 1;
