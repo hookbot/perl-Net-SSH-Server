@@ -570,6 +570,19 @@ sub init_connection {
     return $ENV{SSH_CONNECTION};
 }
 
+sub load_plugin {
+    my $self = shift;
+    my $plugin = shift;
+    for my $mod ($plugin, "Net::SSH::Server::$plugin") {
+        if (eval "require $mod; 1;") {
+            if (my $loader = UNIVERSAL::can($mod, "load")) {
+                return $loader->($self, @_);
+            }
+        }
+    }
+    return;
+}
+
 sub preload_so {
     my $self = shift;
     if (my $shared_object_file = shift) {
@@ -598,9 +611,7 @@ sub run_sshd {
     foreach my $failover_user (@{ $self->register( "failover_user" ) }) {
         # Most recent one bricks over whatever NET_SSH_FALLBACK_USER was before
         if (getpwnam $failover_user) {
-            $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
-            $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
-            $self->preload_so("/var/lib/sshproxy/lib/netssh_getpwnam_override.so");
+            $self->load_plugin(FallbackUser => $failover_user);
             last;
         }
     }

@@ -5,6 +5,19 @@ use warnings;
 
 sub codefile { shift->base."/netssh_getpwnam_override" }
 
+sub load {
+    my $self = shift;
+    my $failover_user = shift or return;
+    $self->trace("FallbackUser:load:$failover_user");
+    if (my $o = shared_object($self)) {
+        $ENV{NET_SSH_FALLBACK_USER} = $failover_user;
+        $ENV{NET_SSH_FALLBACK_SHELL} = $self->{run}->[0];
+        $self->preload_so($o);
+        return 1;
+    }
+    return 0;
+}
+
 sub shared_object {
     my $self = shift;
     my $c = $self->codefile.".c";
