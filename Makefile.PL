@@ -5,7 +5,13 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
     NAME              => 'Net::SSH::Server',
     VERSION_FROM      => 'lib/Net/SSH/Server.pm',
-    PREREQ_PM         => {},
+    PREREQ_PM         => {
+        'Test'        => 0,
+        'File::Which' => 0,
+    },
+    dist => {
+        COMPRESS => "gzip -9 -vf",
+    },
     ABSTRACT_FROM     => 'lib/Net/SSH/Server.pm',
     AUTHOR            => 'Rob Brown <bbb@cpan.org>',
     LICENSE           => 'artistic_2',
