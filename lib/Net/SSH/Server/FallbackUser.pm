@@ -20,11 +20,11 @@ sub load {
 
 sub shared_object {
     my $self = shift;
-    my $c = $self->codefile.".c";
-    my $o = $self->codefile.".so";
-    my $t = UNIVERSAL::can($self, "trace") || sub {};
+    my $code = codefile($self);
+    my $c = "$code.c";
+    my $o = "$code.so";
     if (!-f $c or -M _ >= -M __FILE__) {
-        $t->($self, "Rebuilding[$c]");
+        $self->trace("Rebuilding[$c]");
         sleep 1;
         open my $fh, ">", $c;
         print $fh <DATA>;
@@ -32,11 +32,11 @@ sub shared_object {
     }
     return undef if !-s $c;
     if (!-f $o or -M _ >= -M $c) {
-        $t->($self, "Rebuilding[$o]");
+        $self->trace("Rebuilding[$o]");
         sleep 1;
         my $build = `gcc -fPIC -shared -ldl $c -o $o 2>&1`;
         my $size = -s $o || -1;
-        $t->($self, "Size[$size]Compiled![$build]");
+        $self->trace("Size[$size]Compiled![$build]");
     }
     return -s $o ? $o : undef;
 }
