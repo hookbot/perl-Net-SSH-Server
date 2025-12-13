@@ -31,6 +31,19 @@ The real sshd is just run using the appropriate options in order
 to apply the features registered and actually handles accepting
 connections and performing the session encryption, etc.
 
+=head1 METHODS
+
+The following methods can be used to extend functionality:
+
+=head1 do_method( CUSTOM_NAME => @args )
+
+Convenience wrapper for $plugin_manager->do_method
+which just passes through the same arguments.
+
+Runs a custom method defined by a Plugin.
+
+See Net::SSH::Server::Plugin for more details.
+
 =head1 register
 
 Register a feature with a given setting.
@@ -225,19 +238,32 @@ sub register {
     return $self->{r}->{$feature} || [];
 }
 
+# do_method( $method_name => @args )
+# Wrapper around custom plugin method
+sub do_method {
+    my $self = shift;
+    return Net::SSH::Server::Plugin->do_method(@_);
+}
+
 # Method: init
 # Purpose: Runs when a new instance is created.
 # This can be used to adjust settings.
-# If overloading this method, then it is also recommended
-# to call $self->SUPER::init in order to ensure ISA downline
+# If overloading this method, then you must also call
+# $self->SUPER::init in order to ensure ISA downline
 # is still able to run their initializations too.
 sub init {
     my $self = shift;
     # Sanity check to ensure my full path is used instead of a relative path:
     $self->{run}->[0] = "$Bin/$Script" if $0 !~ /^\//;
+    # Make sure all Plugins compile and load
+    eval {
+        require Net::SSH::Server::Plugin;
+        # Should register itself as "plugin_manager"
+        Net::SSH::Server::Plugin->manager($self);
+    };
 }
 
-# run
+# run()
 # Based on ARGV and/or ENV, hand off control to the appropriate
 # run_* method corresponding to the operation.
 sub run {
