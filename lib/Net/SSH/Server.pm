@@ -270,6 +270,7 @@ sub run {
     my $self = shift || __PACKAGE__;
     # Make sure $self is a real object instead of just a class
     ref $self or $self = $self->new;
+    $self->registered_hook( hook_post_init => () );
 
     # Detect SHELL case
     if ($ENV{SHELL} and $ENV{SHELL} eq $0) {
@@ -309,6 +310,7 @@ sub run {
 # Must never return!
 sub run_shell {
     my $self = shift;
+    $self->registered_hook( hook_shell => () );
     my $shells = $self->register("shell");
     push @$shells, \&unix_shell if !$self->register("skip_unix_shell")->[0];
     my $error = -1;
@@ -428,6 +430,7 @@ sub run_authorizedkeyscommand {
         pubkey  => $pubkey,
         fingerprint => $fingerprint,
     };
+    $self->registered_hook( hook_authorizedkeyscommand => $args );
     my $options = undef;
     if (eval { $options = $self->validate_pubkey($args); 1; }) {
         $options ||= [];
@@ -515,6 +518,7 @@ sub run_pam_exec {
     $code ||= sub {2}; # PAM_SYMBOL_ERR  /* Symbol not found */
     $self->loadstash;
     $self->trace("run_pam_exec:[loadstash=".($self->session_file)."]");
+    $self->registered_hook( "hook_pam_$method" => $self->pam_args );
     if (my $file = delete $ENV{BANNER_FILE}) {
         unlink $file;
     }
@@ -525,6 +529,7 @@ sub run_pam_exec {
 sub init_commandline_args {
     my $self = shift;
     $self->trace("init_commandline_args:TopOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
+    $self->registered_hook( hook_commandline_args => () );
     if (!$ENV{NET_SSH_OVERRIDE}) {
         my $dir = $self->register("override_config_directory");
         $dir = [ grep { -d } @$dir ];
@@ -582,6 +587,7 @@ sub init_connection {
         foreach my $banner_code (@{ $self->register( "preauth_message" ) }) {
             eval { $banner_code->($self); 1; } or !$@ or print STDERR $@;
         }
+        $self->registered_hook( hook_preauth_message => () );
         if ($banner_text) {
             my $banner_file = $self->banner_file;
             if (open my $fh, ">", $banner_file) {
@@ -623,6 +629,7 @@ sub preload_so {
 sub run_sshd {
     my $self = shift;
     $self->trace("run_sshd:top");
+    $self->registered_hook( hook_target => () );
 
     # Implement missing "-D" case, by Detaching and launching WITH "-D":
     if (!grep { $_ eq "-D" } $self->cmdline) {
@@ -650,15 +657,39 @@ sub run_sshd {
         # Probably -R mode or -i mode inetd-style connection.
         $ENV{PAM_ID} = $self->{pam_id} = $$;
         $self->loadstash;
+        $self->registered_hook( hook_connection => () );
         $self->init_connection;
         $self->savestash;
     }
     else {
         # Not a child process connection handler
+        $self->registered_hook( hook_daemon => () );
         $self->run_reexec_check;
     }
     $self->trace("run_sshd:EndOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
+    $self->registered_hook( hook_exec_target => ($target, $self->{run} ) );
     exec { $target } @{ $self->{run} } or die "$0: spawn failure: $!\n";
+}
+
+# registered_hook( $hook_name => (@args) )
+sub registered_hook {
+    my $self = shift;
+    my $hook_name = shift;
+    $self->trace("registered_hook: Running $hook_name");
+    my @args = @_;
+    my $hooks = $self->register( $hook_name );
+    my $res = [];
+    foreach my $hook (@$hooks) {
+        my @answer = ();
+        if ('CODE' eq ref $hook) {
+            eval { @answer = $hook->($self, @args) };
+        }
+        else {
+            eval { @answer = $self->do_method( $hook => @args) };
+        }
+        push @$res, (!@answer and $@) ? $@ : \@answer;
+    }
+    return $res;
 }
 
 sub banner_file {
