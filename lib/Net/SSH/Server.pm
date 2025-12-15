@@ -561,21 +561,27 @@ sub init_commandline_args {
     return;
 }
 
+# $string = view_sockaddr( $binary_sockaddr_struct )
+# Returns "IP.AD.RE.SS PORT" from binary sockaddr structure input
+sub view_sockaddr {
+    my $sockaddr = shift;
+    $sockaddr = shift if eval { $sockaddr->isa(__PACKAGE__) };
+    require Socket;
+    my $IPv4 = (my $family = eval { Socket::sockaddr_family($sockaddr) } || Socket::AF_INET() ) == Socket::AF_INET() or eval { require Socket6 };
+    my $un = "unpack_sockaddr_in".($IPv4?"":6);
+    my $pack2portAbin = UNIVERSAL::can(Socket => $un) || UNIVERSAL::can(Socket6 => $un); # pack2portAbin: RawPackedStructure => (Port, BinaryAddr)
+    my ($port, $binaddr) = $pack2portAbin->($sockaddr);
+    my $famAbin2human = UNIVERSAL::can(Socket => "inet_ntop") || UNIVERSAL::can(Socket6 => "inet_ntop") || sub { Socket::inet_ntoa($_[1]) }; # famAbin2human: (Family, BinaryAddr) => ASCII Human Readable Address String (does not include the port)
+    # Return "$ADDRESS $PORT" separated by a single space
+    return $famAbin2human->($family, $binaddr)." $port";
+}
+
 # Run immediately after SSH client connects
 sub init_connection {
     my $self = shift;
     # Extract connection info early in case it's needed for an early hook.
     if (!$ENV{SSH_CONNECTION}) {
-        require Socket;
-        my $sockaddr = getpeername STDIN;
-        my $IPv4 = (my $family = Socket::sockaddr_family($sockaddr)) == Socket::AF_INET();
-        my $un = \&{ "Socket::sockaddr_in".($IPv4?"":6) };
-        my $view_h_p = $IPv4
-            ? sub { @_=$un->(@_); join " ",(Socket::inet_ntoa($_[1]),$_[0]) }
-            : sub { @_=$un->(@_); join " ",(Socket::inet_ntop($family,$_[1]),$_[0]) };
-        $ENV{SSH_CONNECTION} = $view_h_p->($sockaddr);
-        $sockaddr = getsockname STDIN;
-        $ENV{SSH_CONNECTION} .= " ".$view_h_p->($sockaddr);
+        eval { $ENV{SSH_CONNECTION} = view_sockaddr( getpeername STDIN )." ".view_sockaddr( getsockname STDIN ) } or warn "init_connect: sockaddr_in: $@";
     }
     if (my @warners = @{ $self->register( "preauth_message" ) }) {
         # Capture all output (either STDOUT or STDERR)
