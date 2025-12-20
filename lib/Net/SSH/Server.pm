@@ -638,7 +638,12 @@ sub run_sshd {
     $self->registered_hook( hook_target => () );
 
     # Implement missing "-D" case, by Detaching and launching WITH "-D":
-    if (!grep { /^-[DiRtT]$/ } $self->cmdline) {
+    if (!grep { /^-\w*[DdiRtT]/ } $self->cmdline) {
+        # Not -d debug mode
+        # Not -i inet mode
+        # Not -R re-exec mode
+        # Not -t validation
+        # Not -T test config mode
         $self->cmdline("-D");
         exit if fork;
         eval { require POSIX; POSIX::setsid(); };
