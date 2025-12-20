@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use FindBin qw($Bin $Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
+use Socket;
+eval { require Socket6 };
 
 =pod
 
@@ -561,19 +563,16 @@ sub init_commandline_args {
     return;
 }
 
+sub NI_NUMERICHOST { eval { Socket::NI_NUMERICHOST() } || eval { Socket6::NI_NUMERICHOST() } }
+sub NI_NUMERICSERV { eval { Socket::NI_NUMERICSERV() } || eval { Socket6::NI_NUMERICSERV() } }
+
 # $string = view_sockaddr( $binary_sockaddr_struct )
 # Returns "IP.AD.RE.SS PORT" from binary sockaddr structure input
 sub view_sockaddr {
-    my $sockaddr = shift;
-    $sockaddr = shift if eval { $sockaddr->isa(__PACKAGE__) };
-    require Socket;
-    my $IPv4 = (my $family = eval { Socket::sockaddr_family($sockaddr) } || Socket::AF_INET() ) == Socket::AF_INET() or eval { require Socket6 };
-    my $un = "unpack_sockaddr_in".($IPv4?"":6);
-    my $pack2portAbin = UNIVERSAL::can(Socket => $un) || UNIVERSAL::can(Socket6 => $un); # pack2portAbin: RawPackedStructure => (Port, BinaryAddr)
-    my ($port, $binaddr) = $pack2portAbin->($sockaddr);
-    my $famAbin2human = UNIVERSAL::can(Socket => "inet_ntop") || UNIVERSAL::can(Socket6 => "inet_ntop") || sub { Socket::inet_ntoa($_[1]) }; # famAbin2human: (Family, BinaryAddr) => ASCII Human Readable Address String (does not include the port)
+    # Emulate getnameinfo for crusty old Perl without it
+    my $UNPACKER = Socket->can("getnameinfo") || Socket6->can("getnameinfo") || sub { my ($port,$addr) = Socket::unpack_sockaddr_in(shift); (Socket::inet_ntoa($addr),$port) };
     # Return "$ADDRESS $PORT" separated by a single space
-    return $famAbin2human->($family, $binaddr)." $port";
+    return join " ", ($UNPACKER->(eval{$_[0]->isa(__PACKAGE__)}?$_[1]:$_[0],NI_NUMERICHOST|NI_NUMERICSERV))[-2,-1];
 }
 
 # Run immediately after SSH client connects
@@ -581,7 +580,7 @@ sub init_connection {
     my $self = shift;
     # Extract connection info early in case it's needed for an early hook.
     if (!$ENV{SSH_CONNECTION}) {
-        eval { $ENV{SSH_CONNECTION} = view_sockaddr( getpeername STDIN )." ".view_sockaddr( getsockname STDIN ) } or warn "init_connect: sockaddr_in: $@";
+        eval { $ENV{SSH_CONNECTION} = view_sockaddr( getpeername STDIN )." ".view_sockaddr( getsockname STDIN ) } or warn "init_connection: sockaddr_in: $@";
     }
     if (my @warners = @{ $self->register( "preauth_message" ) }) {
         # Capture all output (either STDOUT or STDERR)
