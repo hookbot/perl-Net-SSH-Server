@@ -285,6 +285,7 @@ sub run {
         # Has at least one arg, so just check the first one:
         # Detect "action" handlers
         if (/^action=(.*)/i and defined ($_ = lc $1)) {
+            $self->registered_hook( hook_action => ($_) );
             # Detect ForceCommand
             if (/^ForceCommand$/i) {
                 # Forced shell after successful auth
