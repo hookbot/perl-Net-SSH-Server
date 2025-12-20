@@ -644,12 +644,13 @@ sub run_sshd {
         # Not -R re-exec mode
         # Not -t validation
         # Not -T test config mode
+        # So need to pretend like sshd and go into the background and add the -D option
         $self->cmdline("-D");
         exit if fork;
         eval { require POSIX; POSIX::setsid(); };
+        # Now we know it's the perfect non-detach mode to allow easy monitoring
     }
 
-    # Now we know it's the perfect non-detach mode to allow easy monitoring
     $ENV{NET_SSH_EXEC_PID} ||= $$;
     $ENV{PAM_ID} = $self->{pam_id} = $ENV{NET_SSH_SERVICE} ? $ENV{NET_SSH_EXEC_PID} : "master-".($ENV{NET_SSH_SERVICE}=$self->pam_service);
     foreach my $failover_user (@{ $self->register( "failover_user" ) }) {
@@ -668,14 +669,9 @@ sub run_sshd {
         # Probably -R mode or -i mode inetd-style connection.
         $ENV{PAM_ID} = $self->{pam_id} = $$;
         $self->loadstash;
-        $self->registered_hook( hook_connection => () );
+        $self->registered_hook( hook_connection => ($sockaddr) );
         $self->init_connection;
         $self->savestash;
-    }
-    else {
-        # Not a child process connection handler
-        $self->registered_hook( hook_daemon => () );
-        $self->run_reexec_check;
     }
     $self->trace("run_sshd:EndOverRide=[".($ENV{NET_SSH_OVERRIDE} // "(undef)")."]");
     $self->registered_hook( hook_exec_target => ($target, $self->{run} ) );
@@ -1044,54 +1040,6 @@ sub sshd_config {
     }
     close $fh;
     return $conf;
-}
-
-sub run_reexec_check {
-    my $self = shift;
-    $self->trace("run_reexec_check:top");
-    my $target = $self->target;
-    if (!grep { /^-\w*[Titd]/ } $self->cmdline) {
-        # Not -T test config mode
-        # And Not -i inet mode
-        # And Not -t validation
-        # And Not -d debug mode
-        # So we must actually bind, listen, & do accept loop.
-        # So we need to do either sshd re-exec mode or Net::Server mode:
-        if ($self->register("avoid_reexec_mode")->[0]  # Desires to use Net::Server::Fork mode
-            or !$self->do_method( supported => "has_reexec" )) {  # Or reexec not supported
-            # So we must pretend like sshd and bind the port and listen for connections and run the inetd children for each connection.
-            # Don't let sshd attempt to do send_rexec_state using -R reexec mode.
-            if (eval { require Net::Server::Fork; 1; }) {
-                $self->trace("run_reexec_check:Switching to Net::Server::Fork mode");
-                my $conf = $self->sshd_config;
-                # Conjure ports so Net::Server bind()s compatibly like sshd would
-                my $port = [ map { /^((\d+\.\d+\.\d+\.\d+)|\[[0-9a-fA-F:]+\]):(\d+)$/ ? { host => $1, port => $3, ipv => ($2?4:6) } : () } @{ $conf->{listenaddress} } ];
-                my $run_args = {
-                    port => $port,
-                    pid_file => ($conf->{pidfile}->[0] || "/var/run/$Script.pid"),
-                };
-                my $log_file = undef;
-                foreach ($self->cmdline) {
-                    $log_file = $_ if defined $log_file;  # Specify log_file: -E <log_file>
-                    $log_file = $1 if /^-\w*E(.*)$/;      # Specify log_file: -E<log_file>
-                    $log_file = '/dev/null' if /^-\w*q/;  # Don't log for Quiet Mode: -q
-                    $log_file = 'STDERR' if /^-\w*e/;     # Log to STDERR: -e
-                    last if $log_file;
-                }
-                $log_file //= do { $run_args->{syslog_ident} = $Script; 'Sys::Syslog' }; # Default to syslog
-                $run_args->{log_file} = $log_file if $log_file ne 'STDERR'; # Omit {log_file} for option: -e
-                $self->cmdline("-i");
-                my @run = @{ $self->{run} };
-                require Net::Server::SSHD;
-                my $sshserver = Net::Server::SSHD->new;
-                $sshserver->{run_inet} = sub { exec { $run[0] } @run or die "$0: spawn failure: $!\n" };
-                $sshserver->run($run_args) or die "$0: Failed to launch Net::Server\n";
-            }
-            $self->trace("run_reexec_check:Net::Server FAILURE: $@");
-        }
-    }
-    # Falling back to -r or -R mode.
-    $self->trace("run_reexec_check:Not using Net::Server");
 }
 
 1;

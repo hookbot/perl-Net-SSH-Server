@@ -7,6 +7,6 @@ contrib/lib/MySSHDaemon.pm
 lib/Net/SSH/Server.pm
 lib/Net/SSH/Server/Plugin.pm
 lib/Net/SSH/Server/Plugin/Supported.pm
-lib/Net/Server/SSHD.pm
+lib/Net/SSH/Server/Plugin/InetD.pm
 t/01-compile-modules.t
 t/02-compile-scripts.t
