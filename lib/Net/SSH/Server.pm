@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use FindBin qw($Bin $Script);
 use Fcntl qw(O_CREAT O_EXCL O_RDONLY O_RDWR O_WRONLY);
-use Socket;
+use Socket ();
 eval { require Socket6 };
 
 =pod
@@ -567,13 +567,13 @@ sub init_commandline_args {
 sub NI_NUMERICHOST { eval { Socket::NI_NUMERICHOST() } || eval { Socket6::NI_NUMERICHOST() } }
 sub NI_NUMERICSERV { eval { Socket::NI_NUMERICSERV() } || eval { Socket6::NI_NUMERICSERV() } }
 
-# $string = view_sockaddr( $binary_sockaddr_struct )
-# Returns "IP.AD.RE.SS PORT" from binary sockaddr structure input
+# ($ADDRESS, $PORT) = view_sockaddr( $binary_sockaddr_struct )
+# Returns ("IP.AD.RE.SS", "PORT") from binary sockaddr structure input
 sub view_sockaddr {
     # Emulate getnameinfo for crusty old Perl without it
     my $UNPACKER = Socket->can("getnameinfo") || Socket6->can("getnameinfo") || sub { my ($port,$addr) = Socket::unpack_sockaddr_in(shift); (Socket::inet_ntoa($addr),$port) };
-    # Return "$ADDRESS $PORT" separated by a single space
-    return join " ", ($UNPACKER->(eval{$_[0]->isa(__PACKAGE__)}?$_[1]:$_[0],NI_NUMERICHOST|NI_NUMERICSERV))[-2,-1];
+    # Return ($ADDRESS, $PORT)
+    return ($UNPACKER->(eval{$_[0]->isa(__PACKAGE__)}?$_[1]:$_[0],(NI_NUMERICHOST|NI_NUMERICSERV)))[-2,-1];
 }
 
 # Run immediately after SSH client connects
@@ -581,7 +581,7 @@ sub init_connection {
     my $self = shift;
     # Extract connection info early in case it's needed for an early hook.
     if (!$ENV{SSH_CONNECTION}) {
-        eval { $ENV{SSH_CONNECTION} = view_sockaddr( getpeername STDIN )." ".view_sockaddr( getsockname STDIN ) } or warn "init_connection: sockaddr_in: $@";
+        eval { $ENV{SSH_CONNECTION} = join " ",view_sockaddr( getpeername STDIN ),view_sockaddr( getsockname STDIN ) } or warn "init_connection: sockaddr_in: $@";
     }
     if (my @warners = @{ $self->register( "preauth_message" ) }) {
         # Capture all output (either STDOUT or STDERR)
